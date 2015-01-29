@@ -1,0 +1,234 @@
+#!/bin/tcsh
+
+# setup testset decoding
+
+set ALLARGS=($*)
+set CHANGED
+if ( $#argv > 1 ) then
+while ( $?CHANGED )
+  unset CHANGED
+  if ( "$argv[1]" == "-DATADIR" )  then
+    set CHANGED
+    shift argv
+    set DATADIR = $argv[1]
+    shift argv
+  endif
+  if ( "$argv[1]" == "-DATAEXT" )  then
+    set CHANGED
+    shift argv
+    set DATAEXT = $argv[1]
+    shift argv
+  endif
+  if ( "$argv[1]" == "-DATATYPE" )  then
+    set CHANGED
+    shift argv
+    set DATATYPE = $argv[1]
+    shift argv
+  endif
+  if ( "$argv[1]" == "-IBMSEG" )  then
+    set CHANGED
+    shift argv
+    set IBMSEG
+  endif
+  if ( "$argv[1]" == "-IBMSEGFLP" )  then
+    set CHANGED
+    shift argv
+    set IBMSEGFLP
+  endif
+  if ( "$argv[1]" == "-HYBRID" )  then
+    set CHANGED
+    shift argv
+    set HYBRIDTESTSET
+  endif
+  if ( "$argv[1]" == "-SEG" )  then
+    set CHANGED
+    shift argv
+    set SEG = $argv[1]
+    shift argv
+  endif
+  if ( "$argv[1]" == "-LATRESCORE" )  then
+    set CHANGED
+    shift argv
+    set LATRESCOREDIR = $argv[1]
+    shift argv
+    set LATRESCOREPASS = $argv[1]
+    shift argv
+  endif
+  if ( "$argv[1]" == "-SUPERVISION" )  then
+    set CHANGED
+    shift argv
+    set SUPDIR = $argv[1]
+    shift argv
+    set SUPPASS = $argv[1]
+    shift argv
+  endif
+  if ( "$argv[1]" == "-ALIGN" )  then
+    set CHANGED
+    shift argv
+    set ALIGNDIR = $argv[1]
+    shift argv
+    set ALIGNPASS = $argv[1]
+    shift argv
+  endif
+end
+endif
+
+# Check Number of Args 
+if ( $#argv != 3) then
+   echo "Usage: $0  [-IBMSEG] [-IBMSEGFLP] [-SEG abspath]  [-LATRESCORE latdir-ABSPATH latpass] [-HYBRID] [-DATADIR datadir] [-DATAEXT pma] [-DATATYPE plp] [-SUPERVISION ABS-DIR pass] BLE tgtdir set"
+   echo " e.g.: $0  BLE.cantonese S2/decode [test/dev]"
+   exit 1
+endif
+
+set BLE=$1
+set TGT=$2
+set TSET=$3
+
+if (! -f $BLE ) then
+   echo "BABEL Language Environment missing $BLE"
+   exit 1
+endif
+source $BLE
+set BASE=$CONVERTDIR
+
+set FTGT=$TGT
+if (! -d CMDs/$FTGT) mkdir -p CMDs/$FTGT
+set TRAINSET=step-testset
+echo "------------------------------------" >> CMDs/$FTGT/${TRAINSET}.cmds
+echo "$0 $ALLARGS" >> CMDs/${FTGT}/${TRAINSET}.cmds
+echo "------------------------------------" >> CMDs/$FTGT/${TRAINSET}.cmds
+
+set LOG=$PWD/LOG.$TSET
+if (! -d $BASE ) then
+   echo "Missing language base-directory: $SRC"
+   exit 1
+endif
+if (! -d $TGT ) then
+   echo "Directory $TGT doesn't exists - run step-decode etc to set-up"
+   exit 1
+endif
+
+cd $TGT
+
+if ( -f lib/htesystem/HTE.system ) then
+   source lib/htesystem/HTE.system
+endif
+
+set TLOG = $PWD/LOG.install.${TSET}
+echo "Install started at `date` on `hostname`" > $TLOG
+
+# Need the current file-list for lattic generation and associated files
+mkdir -p lib/{flists.test}
+
+# link the test list and then partition - create at the session level
+# this assumes that file lists etc are all set-up in the same plavce (or you should re-run)
+# link the test list and then partition - create at the session level
+if ( ! $?DATAEXT ) then
+    set DATAEXT=plp
+endif
+if ( $?DATADIR ) then     
+    mkdir -p lib/flists.orig
+    if ( $?IBMSEG ) then     
+        ln -s ${BASE}/IBMseg/lib/flists/${TSET}.scp lib/flists.orig
+    else if ( $?IBMSEGFLP) then     
+        ln -s ${BASE}/IBMseg-FLP/lib/flists/${TSET}.scp lib/flists.orig
+    else if ( $?SEG) then     
+        ln -s ${SEG}/lib/flists/${TSET}.scp lib/flists.orig
+    else 
+        ln -s ${BASE}/lib/flists.plp/${TSET}.scp lib/flists.orig
+    endif
+    sed 's/\/\//\//g' lib/flists.orig/${TSET}.scp  | awk -v datadir=$DATADIR -f base/lib/awks/mlpscp2scp.awk | sed "s/\.plp/\.${DATAEXT}/g"  > lib/flists.test/${TSET}.scp
+else
+    if ( $?IBMSEG ) then     
+        ln -s ${BASE}/IBMseg/lib/flists/${TSET}.scp lib/flists.test
+    else if ( $?IBMSEGFLP) then     
+        ln -s ${BASE}/IBMseg-FLP/lib/flists/${TSET}.scp lib/flists.test
+    else if ( $?SEG) then     
+        ln -s ${SEG}/lib/flists/${TSET}.scp lib/flists.test
+    else
+        ln -s ${BASE}/lib/flists.plp/${TSET}.scp lib/flists.test
+    endif
+endif
+
+if ( $?HYBRIDTESTSET ) then
+    mv lib/flists.test/${TSET}.scp lib/flists.hcopy
+    # generate hcopy scp accordingly
+    if ( $?DATEMASK ) then
+        base/ntools/arrange_scp -DATEMASK lib/flists.hcopy/${TSET}.scp ${PWD}/data/hcopy lib/flists.hcopy/${TSET}.copy.scp lib/flists.test/${TSET}.hcopy.scp
+    else
+        base/ntools/arrange_scp lib/flists.hcopy/${TSET}.scp ${PWD}/data/hcopy lib/flists.hcopy/${TSET}.copy.scp lib/flists.test/${TSET}.hcopy.scp
+    endif
+    # generate cmn/cvn stuffs
+    ./base/tools/scp2side -DATAEXT $DATAEXT lib/flists.hcopy/${TSET}.scp lib/flists.hcopy/${TSET}.side.scp
+    mkdir -p tasks
+    if ( $?DATATYPE ) then
+        ./base/tools/gen-cmn-cvn lib/flists.hcopy/${TSET}.side.scp $DATATYPE
+    else 
+        ./base/tools/gen-cmn-cvn lib/flists.hcopy/${TSET}.side.scp plp
+    endif
+    # exchange the dirname
+    set fname=`head -1 lib/flists.test/${TSET}.hcopy.scp |  awk -F= '{print $2}'`
+    set srcdir=`dirname "$fname"`
+    set srcdir=`echo ${srcdir} | sed 's/\//\\\//g'`
+    set dstdir=`echo ${PWD}/data/hcopy | sed 's/\//\\\//g'`
+
+    if ( $?DATAEXT ) then 
+        sed 's/\/\//\//g' lib/flists.test/${TSET}.hcopy.scp  | sed "s/${srcdir}/${dstdir}/g" | sed "s/\.plp/\.${DATAEXT}/g" > lib/flists.test/${TSET}.scp
+    else
+        sed 's/\/\//\//g' lib/flists.test/${TSET}.hcopy.scp  | sed "s/${srcdir}/${dstdir}/g"  > lib/flists.test/${TSET}.scp
+    endif
+
+endif
+
+# Create the flists - initially from the train set-up
+#./base/tools/mkflist -DECODE $PWD/lib/flists.test/${TSET}.scp lib/flists.test $TSET
+
+cd lib/flists.test
+../../base/tools/cutlists_mask.pl '%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%*' ${TSET}.scp ${TSET}_
+cd ../..
+./base/tools/mkflistset lib/flists.test ${TSET}_ lib/flists.test/${TSET}.lst
+
+
+# sort the scp file
+if ( $?HYBRIDTESTSET ) then
+#LOCAL
+#    if ($?DATEMASK) then
+#        python base/tools/SortBySide.py lib/flists.test/${TSET}.scp lib/flists.test/${TSET}.lst '%%%%%%??????%%%%%%%%%%%%%%%%-*' ${TSET} lib/flists.test/${TSET}.sort.scp lib/flists.test/${TSET}.range 
+#    else
+#        python base/tools/SortBySide.py lib/flists.test/${TSET}.scp lib/flists.test/${TSET}.lst '%%%%%%%%%%%%????????????????%%%_*' ${TSET} lib/flists.test/${TSET}.sort.scp lib/flists.test/${TSET}.range
+#    endif
+#    cp lib/flists.test/${TSET}.sort.scp lib/flists.test/${TSET}.scp
+    python base/tools/SortBySide.py lib/flists.test/${TSET}.scp lib/flists.test/${TSET}.lst '%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%*' ${TSET} lib/flists.test/${TSET}.sort.scp lib/flists.test/${TSET}.range
+    cp lib/flists.test/${TSET}.sort.scp lib/flists.test/${TSET}.scp
+else
+    # Having set-up the file-lists generate/link the correcttasks dir
+    if ( $?DATATYPE ) then     
+        ./base/tools/scp2side -DATAEXT $DATAEXT lib/flists.test/${TSET}.scp lib/flists.test/${TSET}.side.scp
+        mkdir -p tasks
+        ./base/tools/gen-cmn-cvn lib/flists.test/${TSET}.side.scp $DATATYPE
+    endif
+endif
+
+
+# Add supervision information if require
+if ( $?SUPDIR ) then     
+    if ( $?ALIGNDIR ) then
+        #./base/tools/copy.sh -ALIGN $ALIGNDIR $ALIGNPASS ${TSET} lib/flists.test/${TSET}.lst ${HYPPASS} pass2 ${HYPDIR}
+        ./base/tools/copy.sh -ALIGN $ALIGNDIR $ALIGNPASS ${TSET} lib/flists.test/${TSET}.lst ${SUPPASS} pass2 ${SUPDIR}
+    else 
+        #./base/tools/copy.sh ${TSET} lib/flists.test/${TSET}.lst ${HYPPASS} pass2 ${HYPDIR}
+        ./base/tools/copy.sh ${TSET} lib/flists.test/${TSET}.lst ${SUPPASS} pass2 ${SUPDIR}
+    endif
+endif
+
+# Copy the lattices if specified
+if ( $?LATRESCOREDIR ) then
+    if ( $?SUPDIR ) then     
+        ./base/tools/copy.sh ${TSET} lib/flists.test/${TSET}.lst ${LATRESCOREPASS} pass3-lat ${LATRESCOREDIR}
+    else 
+        ./base/tools/copy.sh ${TSET} lib/flists.test/${TSET}.lst ${LATRESCOREPASS} decode-lat ${LATRESCOREDIR}
+    endif
+endif
+
+
+echo "Install finished at `date` on `hostname`" >> $TLOG

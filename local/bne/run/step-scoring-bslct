@@ -1,0 +1,274 @@
+#!/bin/tcsh
+
+set ALLARGS=($*)
+set cmdopts 
+set CHANGED
+if ( $#argv > 1 ) then
+while ( $?CHANGED )
+  unset CHANGED
+  if ( "$argv[1]" == "-COMPOUND" )  then
+    set CHANGED
+    shift argv
+    set COMPOUND
+  endif
+  if ( "$argv[1]" == "-PHONEMLF" )  then
+    set CHANGED
+    shift argv
+    set PHONEMLF
+  endif
+  if ( "$argv[1]" == "-CTM" )  then
+    set CHANGED
+    shift argv
+    set INCTM=$argv[1]
+    shift argv
+  endif
+  if ( "$argv[1]" == "-MLF" )  then
+    set CHANGED
+    shift argv
+    set INMLF=$argv[1]
+    shift argv
+  endif
+  if ( "$argv[1]" == "-CONFTREE" )  then
+    set CHANGED
+    shift argv
+    set CONFTREE=$argv[1]
+    shift argv
+  endif
+  if ( "$argv[1]" == "-ANNOTATE" )  then
+    set CHANGED
+    shift argv
+    set ANNOTATE
+  endif
+  if ( "$argv[1]" == "-SUBSETLIST" )  then
+    set CHANGED
+    shift argv
+    set SUBSETLIST=$argv[1]
+    shift argv
+  endif
+  if ( "$argv[1]" == "-SCORECONF" )  then
+    set CHANGED
+    shift argv
+    set SCORECONF
+  endif
+  if ( "$argv[1]" == "-MAPCONF" )  then
+    set CHANGED
+    shift argv
+    set MAPCONF
+  endif
+  if ( "$argv[1]" == "-EXPDIR" )  then
+    set CHANGED
+    shift argv
+    set EXPDIR=$argv[1]
+    shift argv
+  endif
+  if ( "$argv[1]" == "-MAPSPKR" )  then
+    set CHANGED
+    shift argv
+    set MAPSPKR
+  endif
+  if ( "$argv[1]" == "-NOENGTOKENS" )  then
+    set CHANGED
+    shift argv
+    set NOENGTOKENS
+  endif
+end
+endif
+
+
+# Check Number of Args 
+if (( $#argv != 3) && ( $#argv != 4))  then
+   echo "Usage: $0 [-EXPDIR dir] [-MAPSKR] [-ANNOTATE] [-SUBSETLIST subset] [-COMPOUND] [-PHONEMLF] [-SCORECONF] [-MAPCONF] [-CTM ctm] [-MLF mlf] [-CONFTREE tree]  [-NOENGTOKENS] BLE testset pass [testrun]"
+   echo "  e.g: $0 BLE.cantonese dev pass3"
+   echo "     : Run sclite scoring software"
+   echo "     : -CTM score/map existing CTM file"
+   echo "     : -MLF score/map existing MLF file"
+   echo "     : -CONFTREE specify the tree for mapping the CTM"
+   echo "     : -ANNOTATE use the IBM annotated STMs (BABEL)"
+   echo "     : -SCORECONF use the scoring config file for this test set"
+   echo "     : -EXPDIR directory to score"
+   echo "     : -SUBSETLIST only score this subset list of the MLF entries"
+   echo "     : -NOENGTOKENS remove English tokens"
+   exit 1
+endif
+
+set BLE = $1
+set TYPE = $2
+set PASS = $3
+
+if (! -f $BLE ) then
+   echo "BABEL Language Environment missing $BLE"
+   exit 1
+endif
+source $BLE
+set BASE=$CONVERTDIR
+
+if ( ! $?EXPDIR ) then
+    set EXPDIR=$PWD
+endif
+
+if ( $#argv == 4) then
+    set STYPE=$4
+else 
+    set STYPE=$TYPE    
+endif
+
+if ( $?MAPCONF ) then
+    if ( $?SCORECONF ) then
+        echo "Cannot specify both -SCORECONF and -MAPCONF"
+        exit 1
+    endif
+    if ( ! $?CONFTREE ) then
+        echo "Must specify both -CONFTREE and -MAPCONF"
+        exit 1
+    endif
+endif
+
+if (! -d CMDs ) mkdir CMDs
+set TRAINSET=step-scoring
+echo "------------------------------------" >> CMDs/${TRAINSET}.cmds
+echo "$0 $ALLARGS" >> CMDs/${TRAINSET}.cmds
+echo "------------------------------------" >> CMDs/${TRAINSET}.cmds
+
+if (! -d scoring/sclite/$TYPE ) mkdir -p scoring/sclite/$TYPE
+
+set FPASS=`echo $PASS | sed 's/\//_/g'`
+
+if ( $?NOENGTOKENS ) set FPASS=${FPASS}_noeng
+
+if (! -d scoring/sclite/$TYPE/work/$FPASS ) mkdir -p scoring/sclite/$TYPE/work/$FPASS
+
+set MLF=scoring/sclite/$TYPE/${FPASS}.mlf
+set CTM=scoring/sclite/$TYPE/${FPASS}.ctm
+set LOG=scoring/sclite/$TYPE/${FPASS}.LOG
+set workdir=scoring/sclite/$TYPE/work/$FPASS
+
+if (-f $LOG) \rm $LOG
+
+
+# generate or copy CTM 
+if ( $?INCTM ) then 
+    if ( ! -f $INCTM ) then
+        echo "Missing CTM $INCTM"
+        exit 1
+    endif
+    cp $INCTM $CTM
+else
+    # First collect all the MLFs together, or normalise the specified MLF
+    # note - repeated normalisation is not an issue
+
+    if ( $?INMLF ) then 
+        if ( ! -f $INMLF ) then
+            echo "Missing MLF $INMLF"
+            exit 1
+        endif
+        cat $INMLF | sed 's/\.lab/\.rec/g' | egrep -v '<s>' | egrep -v '</s>' | egrep -v '<hes>' > ${workdir}/${FPASS}.orig
+        echo ${workdir}/${FPASS}.orig
+    else 
+        if ( -f ${workdir}/${FPASS}.orig ) then 
+            rm ${workdir}/${FPASS}.orig
+        endif
+        foreach i (`cat ${EXPDIR}/lib/flists.test/${TYPE}.lst`)
+            set imap=`echo $i | sed "s/${TYPE}/${STYPE}/g"`
+            if ($?COMPOUND) then
+                cat ${EXPDIR}/test/${STYPE}/${imap}.1/$PASS/${STYPE}_${imap}.mlf  | sed 's/\.lab/\.rec/g' | egrep -v '<s>' | egrep -v '</s>' | egrep -v '<hes>' | awk -f base/lib/awks/compound_score.awk >> ${workdir}/${FPASS}.orig
+            else if ($?PHONEMLF) then
+                awk -f base/lib/awks/mlf2wrd.awk  ${EXPDIR}/test/${STYPE}/${imap}.1/$PASS/${STYPE}_${imap}.mlf  | sed 's/\.lab/\.rec/g' | egrep -v '<s>' | egrep -v '</s>' | egrep -v '<hes>' >> ${workdir}/${FPASS}.orig
+            else 
+                cat ${EXPDIR}/test/${STYPE}/${imap}.1/$PASS/${STYPE}_${imap}.mlf  | sed 's/\.lab/\.rec/g' | egrep -v '<s>' | egrep -v '</s>' | egrep -v '<hes>' >> ${workdir}/${FPASS}.orig
+            endif
+        end
+    endif
+
+    if ( $?NOENGTOKENS ) then
+	mv ${workdir}/${FPASS}.orig ${workdir}/${FPASS}.orig.entok
+	grep -v " [A-Z]" ${workdir}/${FPASS}.orig.entok > ${workdir}/${FPASS}.orig
+    endif
+
+    if ( $?MAPSPKR ) then
+        mv ${workdir}/${FPASS}.orig  ${workdir}/${FPASS}.orig.spkr
+        awk -f base/lib/awks/mlf2nospeaker-score.awk ${workdir}/${FPASS}.orig.spkr > ${workdir}/${FPASS}.orig
+    endif
+
+    # Remove the dirctory information - sorts out parsing issues
+    if ( $?SUBSETLIST ) then
+        mv ${workdir}/${FPASS}.orig ${workdir}/${FPASS}.orig.v1
+        base/bin/HLEd -A -D -V -l '*' -C base/lib/cfgs/hled.cfg -i ${workdir}/${FPASS}.orig /dev/null ${workdir}/${FPASS}.orig.v1 > $LOG
+        sort $SUBSETLIST > ${workdir}/${FPASS}.select
+        awk -f base/lib/awks/mlf2lst.awk ${workdir}/${FPASS}.orig | awk '{printf("%s\n",substr($1,3))}'| sort  | comm -12 -  ${workdir}/${FPASS}.select > ${workdir}/${FPASS}.lst
+        base/bin/HLEd -A -D -V -i $MLF -C base/lib/cfgs/hled.cfg -I ${workdir}/${FPASS}.orig  -S ${workdir}/${FPASS}.lst /dev/null  > ${workdir}/${FPASS}.LOG
+    else 
+        #cp $INMLF $MLF
+        ./base/bin/HLEd -A -D -V -l '*' -C base/lib/cfgs/hled.cfg -i $MLF /dev/null ${workdir}/${FPASS}.orig > $LOG
+    endif
+
+    mv $MLF $MLF.raw
+    python base/local/py/rename_decodemlf.py $MLF.raw $MLF
+    #python base/local/py/clean_mlf.py $MLF.raw $MLF.raw.wrd
+
+    # Having generated the MLF this is the stage to use the scoring config if specified
+    if ( $?SCORECONF ) then
+        if ( $?ANNOTATE ) then
+            base/stools/scoremlf ${TYPE}-show ${TYPE}_${FPASS}-show ${MLF} >& scoring/sclite/${TYPE}_${FPASS}-show.LOG
+        else 
+            base/stools/scoremlf $TYPE ${TYPE}_${FPASS} ${MLF} >& scoring/sclite/${TYPE}_${FPASS}.LOG
+        endif
+        \rm filterctm.LOG
+        egrep Avg scoring/sclite/${TYPE}_${FPASS}*sys
+        exit 0
+    endif
+
+    # Convert to an initial CTM - label files will not be correct
+    ./base/perls/mlf2ctm.pl -l babel -o ${workdir}/${FPASS}.ctm $MLF >& $LOG
+
+    # Generate the final CTM by mapping the name
+    if ( $PERLANG_in == "NOTBABEL" ) then
+        cat ${workdir}/${FPASS}.ctm  > $CTM
+    else 
+        gawk -v basename=$PERLANG_in -f base/lib/awks/ctmfixname.awk  ${workdir}/${FPASS}.ctm  > $CTM
+    endif
+endif
+
+
+# apply a trained mapping to the CTM
+if ( $?CONFTREE ) then
+    if ( ! -f $CONFTREE ) then
+        echo "Missing tree (ignoring mapping): $CONFTREE"
+        echo "to train a tree use:"
+        echo "  base/run/step-confidence"
+        echo "NOTE decoding MLF must include the confidence scores"
+    else 
+        mv $CTM ${CTM}.unmap
+        awk '{printf("%s %d %.2f %.2f %s ",$1,$2,$3,$4,$5); if ($6 <= 1.0) printf("%f\n",$6); else printf("1.0000\n")}' ${CTM}.unmap | base/conftools/smoothtree-ctm.pl $CONFTREE - > $CTM
+    endif
+endif
+
+if ( $?MAPCONF ) then
+    echo "Not generating results - just mapping"
+    exit 0
+endif
+
+# Specify the default output for scoring
+set SCOREOPT=(dtl sgml)
+# Select the correct STM for scoring
+if ($?ANNOTATE) then
+    set TYPE=${TYPE}.annotate
+    set SCOREOPT=($SCOREOPT lur)
+endif
+
+# Now do the scoring - uses version 2.4.2 or above (UTF8 compatibility)
+# include option for localisation normalisation
+if ( ! $?SCORECONV ) then
+    set SCORECONV=
+endif
+if ( ! $?CHARENC ) then
+    set SCORECMD="-e utf-8 $SCORECONV"
+else 
+    set SCORECMD="-e $CHARENC $SCORECONV"
+endif
+if ($?SCORECHAR) then 
+   /home/bluec/babel/NIST/sctk-2.4.8/bin/sclite $SCORECMD -c NOASCII DH -r ${SCORINGDIR}/lib/stms/${TYPE}.stm stm -h $CTM ctm -D -o all dtl sgml ${SCOREOPT} | tail 
+else 
+   /home/bluec/babel/NIST/sctk-2.4.8/bin/sclite $SCORECMD -r ${SCORINGDIR}/lib/stms/${TYPE}.stm stm -h $CTM ctm -D -o all ${SCOREOPT} | tail
+endif
+
+egrep Avg ${CTM}*sys

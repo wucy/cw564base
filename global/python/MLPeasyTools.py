@@ -52,6 +52,8 @@ import struct
 import os.path
 #from ctypes import *
 
+from cw564.io import *
+
 QN_MAX_LAYER_NUM = 20
 QN_WEIGHTS_NAME = 'weights'
 QN_BIAS_NAME = 'bias'
@@ -231,13 +233,10 @@ def QN_PFile_Reader(pfilepath):
 
 # cw564 - mbt
 def QN_Lab_PFile_Writer_WithSpkrInfo(mlfpath, framelen, ctxframenum, pfilepath, seg2spkr_fn, offset = 10000):
-        
-        spkrfile = open(seg2spkr_fn, 'r')
-        
-        seg2spkr = eval(spkrfile.readline())
-
-        spkrfile.close()
-
+	#spkrfile = open(seg2spkr_fn, 'r')
+	#seg2spkr = eval(spkrfile.readline())
+	#spkrfile.close()
+	seg2spkr = mbt.read_segmap(seg2spkr_fn)
 	mfile = open(mlfpath, 'r')
 	mlines = mfile.readlines()
 	pfile = open(pfilepath, 'wb')

@@ -1,0 +1,82 @@
+#! /bin/tcsh
+
+#setup for multi-basisadaptive DNN training
+
+
+#TODO optional args
+set NUM_BASIS=2
+
+
+
+set ALLARGS=($*)
+
+if ( $#argv != 4 ) then
+    echo "Usage: $0 BLE src-MLP-ABS_PATH srcMLP tgtdir"
+    exit 1
+endif
+
+set BLE=$1
+set MLPSRC=$2
+set MLPDIR=$3
+set TGT=$4
+
+source $BLE
+
+set BASE=$CONVERTDIR
+set BASETOOLSDIR=${BASE}/base
+
+
+set FTGT=$TGT
+set TRAINSET=step-mbt
+if (! -d CMDs/$FTGT) mkdir -p CMDs/$FTGT
+echo "------------------------------------" >> CMDs/$FTGT/${TRAINSET}.cmds
+echo "$0 $ALLARGS" >> CMDs/${FTGT}/${TRAINSET}.cmds
+echo "------------------------------------" >> CMDs/$FTGT/${TRAINSET}.cmds
+
+
+
+
+if ( -d $TGT ) then
+    echo "Directory $TGT exists - delete to rerun"
+    exit 1
+else
+    mkdir -p $TGT
+endif
+
+cd ${TGT}
+
+ln -s ${BASETOOLSDIR} base
+mkdir -p lib/mbt/
+
+
+ln -s $MLPSRC/lib/* lib/
+
+python ${BASETOOLSDIR}/local/py/gen_train_lam.py \
+    lib/flists.hcopy/traincv.scp lib/mbt/traincv.lam
+
+
+ln -s ${MLPSRC}/lib/flists.hcopy/ lib/flists.hcopy
+
+python ${BASETOOLSDIR}/local/py/gen_train_segmap.py \
+    lib/flists.hcopy/traincv.scp \
+    lib/mbt/traincv.segmap
+
+ln -s ${MLPSRC}/lib/mlabs lib/mlabs
+
+mkdir -p data/pfile
+
+python ${BASETOOLSDIR}/local/global/python/MLPeasyTools.py \
+    -qn-mlf2pfile-withspkr \
+    lib/mlabs/traincv.index.mlf \
+    100000 4 \
+    data/pfile/traincv_lab_spkr.pfile \
+    lib/mbt/traincv.segmap
+
+ln -s ${MLPSRC}/data/pfile/traincv.pfile data/pfile/
+
+mkdir -p initMLP
+ln -s ${MLPSRC}/${MLPDIR}/MLP initMLP/MLP.orig
+
+#/tools/apps/matlab/matlabR2013b/bin/matlab -nodisplay \
+#    -r "addpath('${BASETOOLSDIR}/local/mytools/matlab/');modify_nn('initMLP/MLP.orig', ${NUM_BASIS});quit;" 
+#mv NN.MAT initMLP/MLP

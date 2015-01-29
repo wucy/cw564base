@@ -1,0 +1,53 @@
+#!/bin/tcsh
+
+set ALLARGS=($*)
+set cmdargs 
+set CHANGED
+if ( $#argv > 1 ) then
+while ( $?CHANGED )
+  unset CHANGED
+  if ( "$argv[1]" == "-GSCALE" )  then
+    set CHANGED
+    shift argv
+    set cmdargs = ($cmdargs -GSCALE $argv[1])
+    shift argv
+  endif
+  if ("$argv[1]" == "-TIMING") then
+    # enable more detailed timing
+    set CHANGED
+    set cmdargs = "$cmdargs $argv[1]"
+    shift argv
+  endif
+end
+endif
+
+# Check Number of Args 
+if  (( $#argv != 1) && ( $#argv != 2))  then
+   echo "Usage: $0 [-GSCALE lmscale] [-TIMING] test [jwait] "
+   echo "  e.g: $0  dev "
+   echo "     : run the default (SI) decoding"
+   exit 1
+endif
+
+set TASK=$1
+
+if ( $#argv == 2) then
+    set jwait = $2
+else
+    set jwait
+endif
+
+if (! -d CMDs ) mkdir CMDs
+set TRAINSET=step-decode
+echo "------------------------------------" >> CMDs/${TRAINSET}.cmds
+echo "$0 $ALLARGS" >> CMDs/${TRAINSET}.cmds
+echo "------------------------------------" >> CMDs/${TRAINSET}.cmds
+
+# run the lattice alignment (generate transcriptions)
+
+set jwait=`./base/local/submits/submit_hdecode.net $cmdargs $TASK $jwait`
+
+echo "qdel $jwait" > killall.bat
+chmod u+x killall.bat
+
+echo $jwait

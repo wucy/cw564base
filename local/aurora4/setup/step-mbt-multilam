@@ -1,0 +1,104 @@
+#! /bin/tcsh
+
+#setup for multi-basisadaptive DNN training
+
+
+#TODO optional args
+#set NUM_BASIS=2
+
+
+
+set ALLARGS=($*)
+
+#if ( $#argv != 6 ) then
+#    echo "Usage: $0 BLE src-MLP-ABS_PATH srcMLP tgtdir num_basis lam_file"
+#    exit 1
+#endif
+
+set BLE=$1
+set MLPSRC=$2
+set MLPDIR=$3
+set TGT=$4
+set NUM_BASIS=$5
+set LAMFILE=$6
+set NUMRGC=$7
+
+
+source $BLE
+
+set BASE=$CONVERTDIR
+set BASETOOLSDIR=${BASE}/base
+
+
+set FTGT=$TGT
+set TRAINSET=step-mbt
+if (! -d CMDs/$FTGT) mkdir -p CMDs/$FTGT
+echo "------------------------------------" >> CMDs/$FTGT/${TRAINSET}.cmds
+echo "$0 $ALLARGS" >> CMDs/${FTGT}/${TRAINSET}.cmds
+echo "------------------------------------" >> CMDs/$FTGT/${TRAINSET}.cmds
+
+
+
+
+if ( -d $TGT ) then
+    echo "Directory $TGT exists - delete to rerun"
+    exit 1
+else
+    mkdir -p $TGT
+endif
+
+cd ${TGT}
+
+ln -s ${BASETOOLSDIR} base
+mkdir -p lib/mbt/
+
+
+ln -s $MLPSRC/lib/* lib/
+
+cp ${LAMFILE} lib/mbt/traincv.lam.orig
+head -n 1 lib/mbt/traincv.lam.orig > lib/mbt/traincv.lam
+cat lib/mbt/traincv.lam.orig | awk 'NR>1{print "traincv_" $0;}' >> lib/mbt/traincv.lam
+
+
+#ln -s ${MLPSRC}/lib/flists.hcopy/ lib/flists.hcopy
+
+python base/local/py/gen_train_segmap.py \
+    lib/flists.hcopy/traincv.scp \
+    lib/mbt/traincv.segmap \
+    traincv
+
+
+#ln -s ${MLPSRC}/lib/mlabs lib/mlabs
+
+mkdir -p data/pfile
+
+ln -s /home/bluea/cw564/aurora4/exp/M1/mbt.egv.2/data/pfile/traincv.pfile data/pfile/
+
+python ${BASETOOLSDIR}/local/global/python/MLPeasyTools.py \
+    -qn-mlf2pfile-withspkr \
+    lib/mlabs/traincv.index.mlf \
+    100000 4 \
+    data/pfile/traincv_lab_spkr.pfile \
+    lib/mbt/traincv.segmap
+
+ln -s ${MLPSRC}/data/pfile/traincv.pfile data/pfile/
+
+mkdir -p initMLP
+ln -s ${MLPSRC}/${MLPDIR}/MLP initMLP/MLP.orig
+
+/tools/apps/matlab/matlabR2013b/bin/matlab -nodisplay \
+    -r "addpath('${BASETOOLSDIR}/local/mat/');modify_nn('initMLP/MLP.orig', ${NUM_BASIS});quit;" 
+mv NN.MAT initMLP/MLP
+
+cp /home/bluea/cw564/aurora4/exp/M2/decode-mbt.ivect.2/decodeMLP/LogPriors initMLP/
+
+
+
+
+#flists.mbt
+mkdir -p lib/flists.mbt
+cp lib/flists.hcopy/traincv.scp lib/flists.mbt/
+
+base/local/py/init_traincv_range.py lib/flists.hcopy/traincv.scp traincv lib/flists.mbt/traincv.range
+
+

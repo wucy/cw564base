@@ -1,0 +1,335 @@
+#!/bin/tcsh
+
+# setup alignment using hybrid decoding
+set ALLARGS=($*)
+set CHANGED
+if ( $#argv > 1 ) then
+while ( $?CHANGED )
+  unset CHANGED
+  if ( "$argv[1]" == "-BASETOOLSDIR" )  then
+    set CHANGED
+    shift argv
+    set BASETOOLSDIR = $argv[1]
+    shift argv
+  endif
+  if ( "$argv[1]" == "-HTESYSTEM" )  then
+    set CHANGED
+    shift argv
+    set HTESYSTEM = $argv[1]
+    shift argv
+  endif
+  if ( "$argv[1]" == "-DATEMASK" )  then
+    set CHANGED
+    shift argv
+    set DATEMASK
+  endif
+  if ( "$argv[1]" == "-DATADIR" )  then
+    set CHANGED
+    shift argv
+    set DATADIR = $argv[1]
+    shift argv
+  endif
+  if ( "$argv[1]" == "-DATAEXT" )  then
+    set CHANGED
+    shift argv
+    set DATAEXT = $argv[1]
+    shift argv
+  endif
+  if ( "$argv[1]" == "-DATATYPE" )  then
+    set CHANGED
+    shift argv
+    set DATATYPE = $argv[1]
+    shift argv
+  endif
+  if ( "$argv[1]" == "-IMPORTHFEA" )  then
+    set CHANGED
+    shift argv
+    set HFEAPATH = $argv[1]
+    shift argv
+  endif
+  if ( "$argv[1]" == "-IMPORTHSCP" )  then
+    set CHANGED
+    shift argv
+    set HSCPPATH = $argv[1]
+    shift argv
+  endif
+  if ( "$argv[1]" == "-IMPORTPFEA" )  then
+    set CHANGED
+    shift argv
+    set PFEAPATH = $argv[1]
+    shift argv
+  endif
+  if ("$argv[1]" == '-TSET') then
+    set CHANGED
+    shift argv
+    set TSET = $argv[1]
+    shift argv
+  endif
+  if ("$argv[1]" == '-FMPE') then
+    set CHANGED
+    shift argv
+  endif
+  if ("$argv[1]" == '-HMMLIST') then
+    set CHANGED
+    shift argv
+    set HMMLIST = $argv[1]
+    shift argv
+  endif
+  if ("$argv[1]" == "-MLFPATH") then
+    set CHANGED
+    shift argv
+    set IMLFPATH = $argv[1]
+    shift argv
+  endif
+end
+endif
+
+# Check Number of Args 
+if ( $#argv != 6) then
+   echo "Usage: $0 [-BASETOOLSDIR base_ABS_PATH] [-HTESYSTEM htefile] [-DATEMASK] [-FMPE] [-DATADIR abs-path] [-DATAEXT ext] [-DATATYPE type] [-IMPORTHFEA dir-abspath] [-IMPORTHSCP scp-abspath] [-IMPORTPFEA pfile-abspath] [-TSET tset] [-HMMLIST xwrdlist] BLE srcdir-ABS_PATH srcHMM src-MLP-ABS_PATH srcMLP tgtdir"
+   echo " e.g.: $0  BLE.cantonese "'$PWD/S2/mpe'" hmm164 "'$PWD/C89/mlptrain'" mlp5.finetune C89/decode\n"
+   echo "-FMPE fmpe models"
+   echo "-IMPORTHFEA link a directory containing HTK format train set features to build the feature pfile."
+   echo "-IMPORTHSCP link a scp to take the place of the default training scp."
+   echo "-IMPORTPFEA link to feature pfile."
+   echo "-TSET specify the train set name for storing the scp and mlf files (default traincv)."
+   exit 1
+endif
+
+set BLE=$1
+set SRC=$2
+set HMM=$3
+set MLPSRC=$4
+set MLPDIR=$5
+set TGT=$6
+
+if (! -f $BLE ) then
+   echo "BABEL Language Environment missing $BLE"
+   exit 1
+endif
+source $BLE
+set BASE=$CONVERTDIR
+
+if ( ! $?DATEMASK ) then
+    set DATEMASK
+endif
+if ( ! $?DATAEXT ) then
+    set DATAEXT = pma
+endif
+if ( ! $?DATATYPE ) then
+    set DATATYPE=user-tandem
+endif
+if ( ! $?TSET ) then
+    set TSET=traincv
+endif
+if ( ! $?HMMLIST ) then
+    set HMMLIST = ${SRC}/xwrd.clustered.mlist
+endif
+
+if ( ! $?BASETOOLSDIR ) then
+    set BASETOOLSDIR=${BASE}/base
+endif
+
+set FTGT=$TGT
+if (! -d CMDs/$FTGT) mkdir -p CMDs/$FTGT
+set TRAINSET=step-align-hybrid
+echo "------------------------------------" >> CMDs/$FTGT/${TRAINSET}.cmds
+echo "$0 $ALLARGS" >> CMDs/${FTGT}/${TRAINSET}.cmds
+echo "------------------------------------" >> CMDs/$FTGT/${TRAINSET}.cmds
+
+if (! -d $SRC ) then
+   echo "Missing source acoustic model dir: $SRC"
+   exit 1
+endif
+if (! -d $BASE ) then
+   echo "Missing language base-directory: $SRC"
+   exit 1
+endif
+if (! -d $BASETOOLSDIR ) then
+   echo "Missing base tools directory $BASETOOLSDIR"
+   exit 1
+endif
+if ( -d $TGT ) then
+   echo "Directory $TGT exists - delete to rerun"
+   exit 1
+else 
+   mkdir -p $TGT
+endif
+
+cd $TGT
+
+# Create the base-line links for CMN and base information
+ln -s $BASETOOLSDIR base
+
+# Create the local library (link consistent directories - contexts and edfiles)
+mkdir -p lib/{dicts,flists_align,flists.hcopy,wlabs,wlists}
+if ( -f ${MLPSRC}/lib/cfgs/local.cfg ) then
+   mkdir -p lib/cfgs
+   cp ${MLPSRC}/lib/cfgs/local.cfg lib/cfgs/
+endif
+
+if ( -f ${SRC}/lib/cfgs/local.cfg ) then
+   cp $SRC/lib/cfgs/local.cfg lib/cfgs/local.hmm.cfg
+endif
+
+if (( $?HTESYSTEM ) || ( -f $SRC/lib/htesystem/HTE.system )) then
+   mkdir lib/htesystem
+   if ( $?HTESYSTEM ) then
+      cp $HTESYSTEM lib/htesystem/HTE.system
+   else 
+      cp $SRC/lib/htesystem/HTE.system lib/htesystem
+   endif
+   source lib/htesystem/HTE.system
+endif
+
+# Need the current file-list for lattice generation and associated files
+if ($?HSCPPATH) then
+    ln -s $HSCPPATH lib/flists.hcopy/${TSET}.orig.scp
+    base/ntools/arrange_scp $DATEMASK lib/flists.hcopy/${TSET}.orig.scp ${PWD}/data/hcopy lib/flists.hcopy/${TSET}.copy.scp lib/flists.hcopy/${TSET}.scp
+    ./base/tools/scp2side -DATAEXT $DATAEXT lib/flists.hcopy/${TSET}.scp lib/flists.hcopy/${TSET}.side.scp    
+else
+    ln -s $MLPSRC/lib/flists.hcopy/${TSET}.scp lib/flists.hcopy/${TSET}.orig.scp
+    base/ntools/arrange_scp $DATEMASK lib/flists.hcopy/${TSET}.orig.scp ${PWD}/data/hcopy lib/flists.hcopy/${TSET}.copy.scp lib/flists.hcopy/${TSET}.scp
+
+    ln -s $MLPSRC/lib/flists.hcopy/all.copy.scp lib/flists.hcopy/${TSET}.copy.orig.scp
+    awk '{print $1;}' lib/flists.hcopy/${TSET}.copy.orig.scp > lib/flists.hcopy/${TSET}.side.scp
+    awk -F/ '{print d"/"$NF;}' d=$PWD/data/hcopy lib/flists.hcopy/${TSET}.side.scp | paste lib/flists.hcopy/${TSET}.side.scp - | awk '{print $1,$2;}' - > lib/flists.hcopy/${TSET}.copy.scp
+endif
+
+# generate hcopy scp accordingly
+#base/ntools/arrange_scp $DATEMASK lib/flists.hcopy/${TSET}.orig.scp ${PWD}/data/hcopy lib/flists.hcopy/${TSET}.copy.scp lib/flists.hcopy/${TSET}.scp
+
+
+cd lib/flists_align
+if ( ! $?PFEAPATH ) then
+    ln -s ../flists.hcopy/${TSET}.scp
+else
+    ln -s ../flists.hcopy/${TSET}.orig.scp ${TSET}.scp
+endif
+python ../../base/tools/SliceSCP.py ${TSET}.scp ${TSET} 200
+cd ../..
+
+# Use the base word-list (linked with lexicon)
+ln -s ${BASE}/lib/wlists/train.lst lib/wlists
+cp lib/wlists/train.lst  lib/wlists/train.lv.lst 
+echo '<s>' >> lib/wlists/train.lv.lst 
+echo '</s>' >> lib/wlists/train.lv.lst 
+
+# Create dictionary - this is needed for aligning and context generation
+# link to the source train.*dct from the previous model - only need to change once!
+
+#LOCAL
+ln -s /home/bluea/mjfg/bne/lms/LM0/dicts/train.dct lib/dicts/train.dct
+#ln -s 
+awk -f base/lib/awks/dct2hv.awk lib/dicts/train.dct >  lib/dicts/train.hv.dct
+awk -f base/lib/awks/dct2lv.awk lib/dicts/train.dct | sort | uniq > lib/dicts/train.lv.dct
+
+# Create the model-set for alignment (including skip sp)
+# link from SRC expand physical model set
+mkdir -p initHMMs
+ln -s ${SRC}/${HMM}/MMF initHMMs
+ln -s $HMMLIST initHMMs/xwrd.clustered.mlist
+
+# check number of silence states prior to conversion
+set nsilstates = `awk -f base/lib/awks/numsilstates.awk initHMMs/MMF`
+
+echo $nsilstates
+
+exit
+
+if ( $nsilstates != 5 ) then
+    # modify sil states of MMF to equal 3
+    mv initHMMs/MMF initHMMs/MMF.orig
+    mkdir initHMMs/work
+    base/bin/HHEd -A -T 1 -V -H initHMMs/MMF.orig -M initHMMs/work -w MMF /dev/null initHMMs/xwrd.clustered.mlist >& initHMMs/work/hhed.LOG
+    awk -f base/lib/awks/convertsilto3.awk initHMMs/work/MMF > initHMMs/MMF
+endif
+
+# expand initHMMs for aligning
+#./base/tools/genphy_model lib/dicts/train.dct initHMMs alignHMMs/work/expand
+
+#ln -s $PWD/alignHMMs/work/expand/xwrd.clustered.mlist alignHMMs
+
+mkdir lib/cntxts
+mkdir decodeHMMs
+./base/tools/getdictcntxt lib/dicts/train.dct lib/cntxts/train.ctx sil
+# map to text format
+#./base/bin/HHEd -A -D -V -T 1 -H alignHMMs/work/expand/MMF -M alignHMMs/work   alignHMMs/work/expand/xwrd.clustered.mlist >& alignHMMs/work/LOG
+
+mkdir alignHMMs
+mkdir alignHMMs/work
+
+mkdir lib/trees
+#LOCAL
+ln -s /home/bluea/mjfg/h4e96/exp/S2/ml/clustering/hmm10_1000_850/cluster_1000_850.trees lib/trees/train.trees
+./base/bin/HHEd -A -D -V -H initHMMs/MMF.orig -M alignHMMs/work -w alignHMMs/MMF  base/lib/edfiles/cntxt.hed initHMMs/xwrd.clustered.mlist > alignHMMs/work/LOG
+
+ln -s $PWD/decodeHMMs/xwrd.clustered.mlist alignHMMs/
+
+if ( $?FMPE ) then
+    ln -s ${SRC}/${HMM}/clusters alignHMMs
+endif
+if ( -d ${SRC}/lib/classes ) then
+    ln -s ${SRC}/lib/classes lib
+endif
+
+# link the other resources: tiedlist and statemlf
+mkdir -p alignMLP/work
+ln -s ${MLPSRC}/${MLPDIR}/MLP alignMLP
+# tiedlist
+if (-f ${MLPSRC}/lib/mlists/tiedstates.lst) then
+    ln -s ${MLPSRC}/lib/mlists/tiedstates.lst alignMLP/target2index.mlist
+else
+    echo sil 0 >> alignMLP/target2index.mlist
+    cat ${MLPSRC}/lib/mlists/mono.lst >> alignMLP/target2index.mlist
+endif
+# statemlf
+ln -s ${MLPSRC}/lib/mlabs/traincv.index.mlf alignMLP/work/train.index.mlf
+
+# generate the hmm file (add hybrid indices)
+python base/htools/GenMMF4MLP.py alignMLP/target2index.mlist alignHMMs/work/MMF alignHMMs/MMF sil2-sp2
+
+# generate the log-prior file
+python base/htools/GenCMeanNorm4MLP.py alignMLP/work/train.index.mlf alignMLP/LogPriors
+
+# link the dest mlf
+if ($?IMLFPATH) then
+    ln -s $IMLFPATH lib/wlabs/train.mlf
+else
+    ln -s $SRC/lib/wlabs/train.mlf lib/wlabs/train.mlf
+endif
+
+# copy the HTE files files
+if (! -f ${MLPSRC}/${MLPDIR}/HTE) then
+    echo "MLP HTE file does not exist !!"
+    exit 1
+else
+    mkdir -p htefiles
+    cp ${MLPSRC}/${MLPDIR}/HTE htefiles/HTE
+    if (-f ${MLPSRC}/${MLPDIR}/HTE.cmdline) then
+        cat ${MLPSRC}/${MLPDIR}/HTE.cmdline >> htefiles/HTE
+    endif
+endif
+
+if ($?PFEAPATH) then
+    mkdir -p data/{hcopy,pfile}
+    ln -s $PFEAPATH data/pfile/${TSET}.pfile
+endif
+
+if ($?HFEAPATH) then
+    mkdir -p data
+    ln -s $HFEAPATH data/hcopy
+endif
+
+# generate CMN/CVN for creation of data at runtime in data/hcopy
+if ( ! -d data/hcopy ) then
+    mkdir -p tasks
+    if ( ! -d tasks/cmn-${DATATYPE} ) then
+        if ( -d $SRC/tasks/cmn-$DATATYPE ) then
+            ln -s $SRC/tasks/c?n-${DATATYPE}* tasks
+        else 
+            ./base/tools/gen-cmn-cvn lib/flists.hcopy/${TSET}.side.scp $DATATYPE
+        endif
+    endif
+endif
+

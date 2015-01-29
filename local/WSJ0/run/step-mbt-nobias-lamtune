@@ -1,0 +1,68 @@
+#!/bin/tcsh
+#set verbose
+
+# run MLP training with CD output targets
+set cmdopts
+set ALLARGS=($*)
+set CHANGED
+#set DATATYPE=plp
+set HMLFOPT = 'cdstate'
+
+if ( $#argv != 1 && $#argv != 2 ) then
+    echo "Usage: $0 env"
+    echo "  e.g. $0 htefiles/HTE.mlp_cdstate\n"
+    exit 1
+endif
+
+if ( $#argv == 2 ) then
+    set jwait=$2
+else
+    set jwait
+endif
+
+if (! -d CMDs ) mkdir CMDs
+set TRAINSET=step-mbt-nobias-lamtune
+echo "------------------------------------" >> CMDs/${TRAINSET}.cmds
+echo "$0 $ALLARGS" >> CMDs/${TRAINSET}.cmds
+echo "------------------------------------" >> CMDs/${TRAINSET}.cmds
+
+set MLPENV = $1
+if ( ! -f $MLPENV ) then
+   echo "ERROR: Missing HTE file: $MLPENV"
+   exit 1
+endif
+if ( ! -d htefiles ) mkdir -p htefiles
+cp $MLPENV htefiles/HTE
+source $MLPENV
+if ($?HTEDIR) then
+    source $HTEDIR/HTE
+    cp $HTEDIR/HTE htefiles/HTE.cmdline
+endif
+
+set TSET = traincv
+set FEAPFILE = data/pfile/${TSET}.pfile
+set LABPFILE = data/pfile/${TSET}_lab_spkr.pfile
+
+
+mkdir -p work
+
+set MBTSEGMAP = "./lib/mbt/${TSET}.segmap"
+set MBTLAM = "./lib/mbt/${TSET}.lam.init"
+set MBTNUMBASIS = 2
+
+set cmdopts = "$cmdopts -MBTLAM $MBTLAM -MBTSEGMAP $MBTSEGMAP -MBTNUMBASIS $MBTNUMBASIS -MLPLABEL $LABPFILE"
+
+set jwait=`./base/local/submits/submit_QN_mbt_gen_lamdata.sh $cmdopts $MLPENV $jwait`
+
+
+
+#if ( $?LABPFILEEXISTS ) then
+#    # use MLPSIZE value from HTE value
+#    set jwait=`./base/submits/submit_QN_layerwisetrn.sh $cmdopts $MLPENV $jwait`
+#else
+#    # use number of states in tiedstates.lst to set MLP output layer size i.e. overwrite MLPSIZE value
+#    set jwait=`./base/submits/submit_QN_layerwisetrn.sh -CDSOUTPUT 0 $cmdopts $MLPENV $jwait`
+#endif
+
+echo $jwait
+

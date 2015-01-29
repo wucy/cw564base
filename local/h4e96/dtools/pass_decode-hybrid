@@ -1,0 +1,172 @@
+#!/bin/csh -f
+#set verbose
+
+set ALLARGS=($*)
+set CHANGED
+set cmdopts
+if ( $#argv > 1 ) then
+while ( $?CHANGED )
+  unset CHANGED
+  if ( "$argv[1]" == "-BGTG" )  then
+    set CHANGED
+    shift argv
+    set BGTG
+  endif
+  if ( "$argv[1]" == "-BG" )  then
+    set CHANGED
+    shift argv
+    set BG
+  endif
+  if ( "$argv[1]" == "-LGE" )  then
+    set CHANGED
+    shift argv
+    set LGE = $argv[1]
+    shift argv
+  endif
+  if ( "$argv[1]" == "-HGSCALE" )  then
+    set CHANGED
+    shift argv
+    set LMSCALE = $argv[1]
+    shift argv
+    set cmdopts = "$cmdopts -HVGSCALE $LMSCALE"
+  endif
+  if ( "$argv[1]" == "-HPRUN" )  then
+    set CHANGED
+    shift argv
+    set HPRUN = $argv[1]
+    shift argv
+    set cmdopts = "$cmdopts -HVPRUNE $HPRUN -HVRELPRUNE $HPRUN -HVWEPRUNE $HPRUN"
+  endif
+  #if (`echo "$argv[1]" | awk '{print(substr($1,1,1))}'` == "-" ) then
+  #  set CHANGED
+  #  set cmdopts = "$cmdopts $argv[1]"
+  #  shift argv
+  #  set cmdopts = "$cmdopts $argv[1]"
+  #  shift argv
+  #endif
+end
+endif
+
+
+set BASISID = $argv[1]
+shift argv
+
+# Check Number of Args
+if ( $#argv != 2 ) then
+   echo "Usage: $0 [-BGTG or BG] [-LGE lgeID] type show "
+   exit 1
+endif
+
+set TYPE=$1
+set SHOW=$2
+setenv TRAINSET $TYPE
+
+# Generate CMD run directory
+if ( ! -d CMDs ) mkdir -p CMDs
+
+# Cache the command lines (useful to keep track of things)
+#echo "------------------------------------" >> CMDs/${TRAINSET}.cmds
+#echo "$0 $ALLARGS" >> CMDs/${TRAINSET}.cmds
+#echo "------------------------------------" >> CMDs/${TRAINSET}.cmds
+
+if (! $?LMSCALE) then
+    set LMSCALE = 11.0
+    set CNSCALE = 0.0909091
+endif
+
+#if ( $?BGTG || $?BG ) then     
+if ( -f htefiles/HTE.lat_decode ) then
+   set HTEDec=htefiles/HTE.lat_decode
+else 
+   set HTEDec=base/htefiles/HTE.dec_si-hybrid
+endif
+
+set HTEQN = htefiles/HTE
+
+set toolsdir = ./base/dtools
+
+if (! -d $toolsdir) then
+   echo "need to set-up the tools directory $toolsdir"
+   exit 1
+endif
+
+set items = `cat lib/flists.test/${TYPE}.range | grep ${SHOW} | awk 'BEGIN{FS=","}{for (i=1; i<=NF; i++) print $i}'`
+
+set TRNSTA = $items[2]
+set TRNEND = $items[3]
+
+set WorkDIR = test/${TYPE}/${SHOW}.1/decode
+if (! -f $WorkDIR) then
+    mkdir -p $WorkDIR
+endif
+
+#set socket = `date -d "\`date\`" +%s`
+set date = `date`
+set socknum = `date -d "$date" +%s`
+set socket = SUN_${socknum}.socket
+
+@ count = 0
+while (-f ${WorkDIR}/${socket})
+    rm ${WorkDIR}/${socket}
+    @ count = $count + 1
+    if ($count > 10000) then
+        echo "cannot make the socket file available!"
+        exit 1
+    endif
+end
+
+
+set QNCMD = "./base/local/ntools/QN_qnmultifwd.net.sh -TRNSTA $TRNSTA -TRNEND $TRNEND -ACCELERATE none -THREADNUM 1 ${HTEQN} decodeMLP data/pfile/${TYPE}.pfile ${WorkDIR}/tmp.pfile ${WorkDIR} ${socket} $BASISID"
+set HDCMD = "$toolsdir/htest-hybrid -HVBIN ./base/bin/HDecode.hybrid $cmdopts $HTEDec $TYPE $SHOW decode ${socket}"
+
+#save the command
+echo python base/tools/MultiThreadInterface.py \"${QNCMD}\" \"${HDCMD}\" > $WorkDIR/CMD
+python base/tools/MultiThreadInterface.py "${QNCMD}" "${HDCMD}"
+# try to delete the socket when it finsihed
+if (-f ${WorkDIR}/${socket}) then
+    rm ${WorkDIR}/${socket}
+endif
+
+if ( $?BGTG ) then   
+    set baseopts
+    if ( $?LGE ) then
+        # set up extra command line options for multi-language system 
+        set baseopts = "$baseopts -HLNET lib/lms/tg_train_${LGE}.lm"
+        set baseopts = "$baseopts -HLVOC lib/dicts/test_${LGE}.lv.dct"
+    endif
+    # rescore
+    $toolsdir/hlrescore -HLGSCALE ${LMSCALE} $baseopts base/htefiles/HTE.hlrescore-hybrid $TYPE $SHOW decode decode/rescore/tg_${LMSCALE}_0.0
+
+    # cn test
+    set SHIFTSCALE = `echo "$LMSCALE + 0.0" | bc`
+    set CNSCALE = `echo "scale=8; 1.0 / $SHIFTSCALE" | bc`
+    set CNSCALE = "0${CNSCALE}"
+    #$toolsdir/cntest-hybrid -HLGSCALE 1.0 -HLASCALE $CNSCALE $baseopts base/htefiles/HTE.cn-hybrid $TYPE $SHOW decode/rescore/tg_${LMSCALE}_0.0 decode/rescore/tg_${LMSCALE}_0.0_cn
+    $toolsdir/cntest -HLGSCALE 1.0 -HLASCALE $CNSCALE $baseopts base/htefiles/HTE.cn-hybrid $TYPE $SHOW decode/rescore/tg_${LMSCALE}_0.0 decode/rescore/tg_${LMSCALE}_0.0_cn
+    
+    # patch the missing utterances; note this is very important since if there are any missing utterances, the hybrid align would be wrong
+    set RescDIR = test/${TYPE}/${SHOW}.1/decode/rescore/tg_${LMSCALE}_0.0
+    set WorkDIR = test/${TYPE}/${SHOW}.1/decode/rescore/tg_${LMSCALE}_0.0_cn
+    set lhmlf = "${RescDIR}/${TYPE}_${SHOW}.mlf"
+    set rhmlf = "${WorkDIR}/${TYPE}_${SHOW}.mlf"
+    mv ${rhmlf} ${rhmlf}.cn
+    echo "python base/htools/MergeMLF.py repl ${lhmlf} ${rhmlf}.cn ${rhmlf} ${WorkDIR}/lattices"
+    python base/htools/MergeMLF.py repl ${lhmlf} ${rhmlf}.cn ${rhmlf} ${WorkDIR}/lattices
+
+    # align
+    #mkdir ${WorkDIR}/align
+    #set QNCMD = "./base/ntools/QN_qnmultifwd.net.sh -TRNSTA $TRNSTA -TRNEND $TRNEND -ACCELERATE none -THREADNUM 1 ${HTEQN} decodeMLP data/pfile/${TYPE}.pfile ${WorkDIR}/align/tmp.pfile ${WorkDIR}/align ${socket}"
+    #set HVCMD = "$toolsdir/htest-hybrid -HVBIN ./base/bin/HVite.hybrid $baseopts base/htefiles/HTE.test.cnalign-hybrid $TYPE $SHOW decode/rescore/tg_${LMSCALE}_0.0_cn ${socket}"
+    #echo python base/tools/MultiThreadInterface.py \"${QNCMD}\" \"${HVCMD}\" > $WorkDIR/align/CMD
+    #python base/tools/MultiThreadInterface.py "${QNCMD}" "${HVCMD}"
+    #if (-f ${WorkDIR}/align/${socket}) then
+    #    rm ${WorkDIR}/align/${socket}
+    #endif
+
+endif
+
+exit 0
+
+#---------------------------------------------------------------#
+#                End of Script: pass_decode-hybrid              #
+#---------------------------------------------------------------#

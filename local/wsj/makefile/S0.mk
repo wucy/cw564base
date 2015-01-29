@@ -5,11 +5,11 @@ EXT_SEG2SPKR_MAP_PY = /home/bluea/cw564/wsjcsr/WSJ0/enigma/lambda/S0/seg2spkr.ma
 EXT_MLF_INDEX = /home/bluea/cw564/wsjcsr/WSJ0/exp/S3/mlptrain.debug/lib/mlabs/traincv.index.mlf
 EXT_GENDER_INFO = /home/bluea/cw564/wsjcsr/WSJ0/res/wsj0-spkr-info.txt.920128
 EXT_SCP = /home/bluea/cw564/wsjcsr/WSJ0/exp/S3/mlptrain.debug/lib/flists.hcopy/traincv.scp
-
+EXT_INIT_NN = /home/bluea/cw564/wsjcsr/WSJ0/exp/S3/mlptrain.debug/mlp3/MLP
 
 
 .PHONY : run
-run : lambda.init seg2spkr.map traincv_withspkrinfo_lab.pfile
+run : lambda.init seg2spkr.map traincv_withspkrinfo_lab.pfile DIAG.mat
 
 
 gen_lambda.py :
@@ -43,8 +43,19 @@ traincv_withspkrinfo_lab.pfile : gen_seg2spkr.py seg2spkr.map.Py traincv.mlf
 		traincv.mlf 100000 4 $@ seg2spkr.map.Py
 
 
+modify_nn.m :
+	ln -sf ${MY_LOCAL}/matlab/modify_nn.m $@
+
+INIT.nn : 
+	ln -sf ${EXT_INIT_NN} $@
+DIAG.mat : modify_nn.m INIT.nn
+	/tools/apps/matlab/matlabR2012a/bin/matlab -nojvm -nodesktop -r "addpath('${MY_LOCAL}/matlab/');modify_nn;quit;"
+
+
+
 .PHONY : clean
 clean :
 	rm gen_lambda.py gen_seg2spkr_map.py gender.info traincv.scp lambda.init seg2spkr.map \
-		seg2spkr.map.Py gen_seg2spkr.py traincv.mlf traincv_withspkrinfo_lab.pfile
+		seg2spkr.map.Py gen_seg2spkr.py traincv.mlf traincv_withspkrinfo_lab.pfile \
+		modify_nn.m INIT.nn DIAG.mat
 

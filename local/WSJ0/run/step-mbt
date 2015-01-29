@@ -1,0 +1,19 @@
+#! /bin/tcsh
+
+set ALLARGS=($*)
+
+#TODO args
+
+mkdir -p CMDs
+set TRAINSET=step-mbt
+echo "------------------------------------" >> CMDs/${TRAINSET}.cmds
+echo "$0 $ALLARGS" >> CMDs/${TRAINSET}.cmds
+echo "------------------------------------" >> CMDs/${TRAINSET}.cmds
+
+
+
+mkdir -p finalMLP/work
+ln -s ${PWD}/initMLP/MLP finalMLP/work/INIT
+
+set jwait=`qsub -l qp=cuda-low -S /bin/bash ${PWD}/base/local/ntools/qnmultitrn.mbt`
+echo ${jwait}

@@ -1,0 +1,19 @@
+#! /bin/bash
+
+
+tset=csrnab_dt_h1
+
+mkdir -p hmm11
+./base/bin/HHEd -H alignHMMs/work/MMF -M hmm11 base/lib/edfiles/sh.hed alignHMMs/xwrd.clustered.mlist > hmm11/sh.LOG
+python base/htools/mlftransf_state_align_dnn.py -label2index mono hmm11/sh.LOG alignHMMs/xwrd.clustered.mlist lib/mlabs/${tset}.mlf lib/mlists/tiedstates.lst lib/mlabs/${tset}.state.mlf.w_ind
+
+
+inmlf=lib/mlabs/${tset}.state.mlf.w_ind
+outmlf=lib/mlabs/${tset}.state.mlf
+
+frommap=lib/mlists/tiedstates.lst
+tomap=../../../../S3/mlptrain.1000/lib/mlists/tiedstates.lst
+
+
+python base/local/py/recover_align_index.py $inmlf $outmlf $frommap $tomap
+

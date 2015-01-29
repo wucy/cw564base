@@ -1,0 +1,272 @@
+#!/bin/csh -f
+
+# code to generate commandline HTE for options
+if ( $#argv > 1 ) then
+   set HTEDIR = `mktemp -d`
+   base/tools/parse2hte $HTEDIR/HTE "$argv"
+   while ((`echo "$argv[1]" | awk '{print(substr($1,1,1))}'` == "-" ) || (`echo "$argv[1]" | awk '{print(substr($1,1,1))}'` == "+" ))
+      shift argv
+      shift argv
+   end
+endif
+
+# Check Number of Args 
+if (( $#argv != 5) && ( $#argv != 6)) then
+   echo "Usage: $0 env tsttype tstset tgt qnenv [inxformdir]"
+   exit 100
+endif
+
+
+set HTE=$1
+set TYPE=$2
+set SET=$3
+set TGTDIR=$4
+set HTEQN=$5
+
+if ( ! -f $HTE ) then
+   echo "Cannot find environment file $HTE"
+   exit 100
+endif
+if ( ! -f $HTEQN ) then
+   echo "Cannot find environment file $HTEQN"
+   exit 100
+endif
+
+# Load in the environment file and override command-line options
+source $HTE
+if ($?HTEDIR) source $HTEDIR/HTE
+
+# Check hmmsource Exists
+
+# Set up default recognition list - changed for alignment
+if (! $?TESTDATALIST) then 
+   if ( $?TESTDATADIR) then
+      set TESTDATALIST = $TESTDATADIR/${SET}.scp
+   endif 
+endif
+
+
+# Set test dir
+unset TESTDIRSET
+set TESTEXTN=1
+if ($?HVALIGN) then
+   set TESTDIR=align/${TYPE}/${SET}.1
+else 
+   set TESTDIR=test/${TYPE}/${SET}.1
+endif
+
+if (! -d $TESTDIR/${TGTDIR} ) mkdir -p $TESTDIR/${TGTDIR}
+
+# Define the file to log all output/errors to
+set LOG=$TESTDIR/${TGTDIR}/LOG
+
+# Copy the test HTE file as a record
+cp $HTE $TESTDIR/${TGTDIR}/HTE-align
+if ($?HTEDIR) then
+    cp  $HTEDIR/HTE $TESTDIR/${TGTDIR}/HTE-align.cmdline
+    rm -r $HTEDIR
+endif
+cp $HTEQN $TESTDIR/${TGTDIR}/HTE
+
+# Set HVite Options
+set OPT = ( -H $HMMDIR/MMF )
+if ( $?BASECFG ) then
+   set OPT = ( $OPT -C $BASECFG )
+endif
+
+if ( $#argv == 6 ) then
+   set INXFDIR=$6
+   if ( $?HVITESET ) then
+       set OPT = ( $OPT -k -J ${TESTDIR}/$INXFDIR )
+   else 
+       set OPT = ( $OPT -m -J ${TESTDIR}/$INXFDIR )
+   endif
+   if ($?HVINXFORMEXT) then
+      set OPT = ($OPT $HVINXFORMEXT)
+   endif
+endif 
+
+if ( $?HVFORCEXFORMDIR ) then
+   while ( $#HVFORCEXFORMDIR > 0 )
+      set OPT = ($OPT -J ${TESTDIR}/$HVFORCEXFORMDIR[1])
+      shift HVFORCEXFORMDIR
+   end
+endif
+if ( $?HVFORCEXFORMSET ) then
+   while ( $#HVFORCEXFORMSET > 0 )
+      if (-d $HVFORCEXFORMSET[1]) then
+          set OPT = ($OPT -J $HVFORCEXFORMSET[1])
+      endif
+      shift HVFORCEXFORMSET
+   end
+endif
+
+if ($?HVFORCEMACRO) then
+   while ( $#HVFORCEMACRO > 0 )
+      set OPT = ($OPT -H $HVFORCEMACRO[1])
+      shift HVFORCEMACRO
+   end
+endif
+
+if ($?HVINCADAPT) then
+   set OPT = ($OPT -j $HVINCADAPT -K $TESTDIR)
+   if ($?HVOUTXFORMEXT) then
+      set OPT = ($OPT $HVOUTXFORMEXT)
+   endif   
+else if ($?HVADAPT) then
+   set OPT = ($OPT -K $TESTDIR/${TGTDIR})
+   if ($?HVOUTXFORMEXT) then
+      set OPT = ($OPT $HVOUTXFORMEXT)
+   endif
+endif
+
+set HVOPFILE=$TESTDIR/${TGTDIR}/"$TYPE"_"$SET".mlf
+
+set OPT = ( $OPT -i $HVOPFILE )
+
+if ($?HVTRACE) then
+   set OPT = ($OPT -T $HVTRACE)
+endif
+if ($?GENLAT) then
+   set OPT = ($OPT -z lat -l $TESTDIR/${TGTDIR}/lattices)
+   mkdir  $TESTDIR/${TGTDIR}/lattices
+endif
+
+# add the indexed options
+
+if ($?HVPRUNE) then
+   set OPT = ($OPT -t $HVPRUNE)
+   if ($?HVRELPRUNE) then
+        set OPT = ($OPT  $HVRELPRUNE)
+   endif
+endif
+if ($?HVWEPRUNE) then
+   set OPT = ($OPT -v $HVWEPRUNE)
+endif
+if ($?HVMAXACTIVE) then
+   set OPT = ($OPT -u $HVMAXACTIVE)
+endif
+if ($?HVGSCALE) then
+   set OPT = ($OPT -s $HVGSCALE)
+endif
+if ($?HVIMPROB) then
+   set OPT = ($OPT -p $HVIMPROB)
+endif
+if ($?HVXFORMCONFIG) then
+   set OPT = ($OPT -C $HVXFORMCONFIG )
+endif
+if ($?HVLABFORMAT) then
+   set OPT = ($OPT -o $HVLABFORMAT )
+endif
+if ($?HVLATFORMAT) then
+   set OPT = ($OPT -q $HVLATFORMAT )
+endif
+if ($?HVNBEST) then
+   set OPT = ($OPT -n $HVNBEST )
+endif
+if ($?HVMODMARK) then
+   set OPT = ($OPT -m )
+endif
+if ($?HVSTATEALGN) then
+   set OPT = ($OPT -f )
+endif
+
+if ($?HVALIGN) then
+   if ($?HVALIGNWORD) then
+        set OPT = ($OPT -a -o M -y lab )
+   else 
+        set OPT = ($OPT -o PF -a -y lab )
+   endif
+   if ($?ALIGNMLF) then
+        set OPT = ( $OPT -I $ALIGNMLF )
+   else 
+        set OPT = ($OPT -I $TESTDIR/${TGTDIR}/"$TYPE"_"$SET".led.mlf )
+   endif
+else if ($?HVLATDIR) then
+   set OPT = ($OPT -w -L $TESTDIR/$HVLATDIR/lattices )
+   set OPT = ( $OPT -X lat )    
+   if ( ! $?TESTDATALIST) then
+      set TESTDATALIST = $TESTDIR/$HVLATDIR/flists/${SET}_align.scp
+   endif 
+else if ($?HVLATSET) then
+   set OPT = ($OPT -w -L $HVLATSET/lattices )
+   set OPT = ( $OPT -X lat )    
+   if ( ! $?TESTDATALIST) then
+      set TESTDATALIST = $HVLATSET/flists/${SET}_align.scp
+   endif 
+else 
+   set OPT = ($OPT -w $HVNET )
+   set OPT = ( $OPT -X rec )
+endif
+
+set VOC=$HVVOC
+
+if ( ! $?HVBIN ) then
+    echo "HVBIN not set: using HVite.net as default";
+    set HVBIN = base/bin/HVite.net
+endif
+
+# set processor nice levels 
+  set PR=
+
+# -------------- Run HVite -----------------
+
+set date = `date`
+set socknum = `date -d "$date" +%s`
+set socket = SUN_${socknum}.socket
+
+@ count = 0
+while (-f $TESTDIR/${TGTDIR}/${socket})
+    rm $TESTDIR/${TGTDIR}/${socket}
+    @ count = $count + 1
+    if ($count > 10000) then
+        echo "cannot make the socket file!"
+        exit 100
+    endif
+end
+
+set items = `cat lib/flists_align/${TYPE}.range | grep ${SET} | awk 'BEGIN{FS=","}{for (i=1; i<=NF; i++) print $i}'`
+
+set TRNSTA = $items[2]
+set TRNEND = $items[3]
+
+set QNCMD = "./base/ntools/QN_qnmultifwd.net.sh -TRNSTA $TRNSTA -TRNEND $TRNEND -ACCELERATE none -THREADNUM 1 ${HTEQN} alignMLP data/pfile/${TYPE}.pfile $TESTDIR/${TGTDIR}/fakeout.pfile $TESTDIR/${TGTDIR} ${socket}"
+set HVCMD = "sleep 10; $HVBIN -A -D -V -F $TESTDIR/${TGTDIR}/${socket} -C $HVCONFIG $OPT -b '<s>' -S $TESTDATALIST $VOC $HMMLIST >> $LOG"
+
+#save the command
+echo python base/tools/MultiThreadInterface.py \"${QNCMD}\" \"${HVCMD}\" > $TESTDIR/${TGTDIR}/CMD
+
+#----------------start to do the alignment-----------------------
+
+echo "HVite started at `date` on `hostname`" > $LOG
+
+python base/tools/MultiThreadInterface.py "${QNCMD}" "${HVCMD}"
+# try to delete the socket when it finsihed
+if (-f $TESTDIR/${TGTDIR}/${socket}) then
+    rm $TESTDIR/${TGTDIR}/${socket}
+endif
+
+if ( $status != 0 ) then
+   echo "HVite terminated abnormally at `date` on `hostname`" >> $LOG
+   echo "" >> $LOG 
+   exit $status
+else
+   echo "HVite finished at `date` on `hostname`" >> $LOG
+   echo "" >> $LOG
+endif
+
+# -------------- Tidy up the alignments to give logical labels -----------------
+
+if ($?HVALIGNMLP) then
+    awk -f base/lib/awks/statemlf2phymodel.awk $HVOPFILE > $TESTDIR/${TGTDIR}/"$TYPE"_"$SET".state.mlf
+    awk -f base/lib/awks/statemlfmlist.awk $TESTDIR/${TGTDIR}/"$TYPE"_"$SET".state.mlf > $TESTDIR/${TGTDIR}/"$TYPE"_"$SET".state.mlist
+    base/tools/mlf2scp $TESTDIR/${TGTDIR}/"$TYPE"_"$SET".state.mlf > $TESTDIR/${TGTDIR}/"$TYPE"_"$SET".state.scp
+else if ($?HVALIGN) then
+    $HLBIN -A -D -V -T 1 -m -i $TESTDIR/${TGTDIR}/"$TYPE"_"$SET".mono.mlf $HLED2 $HVOPFILE >>& $TESTDIR/${TGTDIR}/"$TYPE"_"$SET".mono.LOG
+    $HLBIN -A -D -V -T 1 -n $TESTDIR/${TGTDIR}/"$TYPE"_"$SET".xwrd.mlist -i $TESTDIR/${TGTDIR}/"$TYPE"_"$SET".xwrd.mlf $HLED $TESTDIR/${TGTDIR}/"$TYPE"_"$SET".mono.mlf >>& $TESTDIR/${TGTDIR}/"$TYPE"_"$SET".xwrd.LOG
+endif
+
+
+#---------------------------------------------------------------#
+#                   End of Script: htest                      #
+#---------------------------------------------------------------#

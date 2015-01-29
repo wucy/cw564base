@@ -1,0 +1,135 @@
+#!/bin/tcsh
+
+set ALLARGS=($*)
+set cmdargs 
+set CHANGED
+if ( $#argv > 1 ) then
+while ( $?CHANGED )
+  unset CHANGED
+  if ("$argv[1]" == "-TIMING") then
+    # enable more detailed timing
+    set CHANGED
+    set cmdargs = ($cmdargs -TIMING)
+    set TIMING = $argv[1]
+    shift argv
+  endif
+  if ( "$argv[1]" == "-BGTG" )  then
+    set CHANGED
+    shift argv
+    set cmdargs = ($cmdargs -BGTG)
+  endif
+  if ( "$argv[1]" == "-BG" )  then
+    set CHANGED
+    set BG
+    shift argv
+    set cmdargs = ($cmdargs -BG)
+  endif
+  if ( "$argv[1]" == "-FORCEHCOPY" )  then
+    set CHANGED
+    set FORCEHCOPY
+    shift argv
+  endif
+  if ( "$argv[1]" == "-FORCEPFILE" )  then
+    set CHANGED
+    set FORCEPFILE
+    shift argv
+  endif
+  if ( "$argv[1]" == "-CTXFRAME" )  then
+    set CHANGED
+    shift argv
+    set CTXFRAME = $argv[1]
+    shift argv
+    set cmdargs = ($cmdargs -CTXFRAME $CTXFRAME)
+  endif
+  if ( "$argv[1]" == "-HGSCALE" )  then
+    set CHANGED
+    shift argv
+    set HGSCALE = $argv[1]
+    shift argv
+    set cmdargs = ($cmdargs -HGSCALE $HGSCALE)
+  endif
+  if ( "$argv[1]" == "-HPSCALE" )  then
+    set CHANGED
+    shift argv
+    set HPSCALE = $argv[1]
+    shift argv
+    set cmdargs = ($cmdargs -HPSCALE $HPSCALE)
+  endif
+  if ( "$argv[1]" == "-HPRUN" )  then
+    set CHANGED
+    shift argv
+    set HPRUN = $argv[1]
+    shift argv
+    set cmdargs = ($cmdargs -HPRUN $HPRUN)
+  endif
+  if ( "$argv[1]" == "-MORERES" ) then
+    set CHANGED
+    shift argv
+    set cmdargs = ($cmdargs -MORERES )
+  endif
+  if (`echo "$argv[1]" | awk '{print(substr($1,1,1))}'` == "-" ) then
+      set CHANGED
+      set cmdargs = "$cmdargs $argv[1]"
+      shift argv
+      set cmdargs = "$cmdargs $argv[1]"
+      shift argv
+  endif
+end
+endif
+
+# Check Number of Args 
+if  (( $#argv != 1) && ( $#argv != 2))  then
+   echo "Usage: $0 [-BGTG or -BG] test [jwait] "
+   echo "  e.g: $0  dev "
+   echo "     : run the default (SI) decoding"
+   exit 1
+endif
+
+set TASK=$1
+
+if ( $#argv == 2) then
+    set jwait = $2
+else
+    set jwait
+endif
+
+if ($?TIMING) then
+    set HCTIMING = "-TIMING $TASK"
+else
+    set HCTIMING
+    set TIMING
+endif
+
+if (! -d CMDs ) mkdir CMDs
+set TRAINSET=step-decode-hybrid
+echo "------------------------------------" >> CMDs/${TRAINSET}.cmds
+echo "$0 $ALLARGS" >> CMDs/${TRAINSET}.cmds
+echo "------------------------------------" >> CMDs/${TRAINSET}.cmds
+
+if (! $?CTXFRAME) then
+    set CTXFRAME = 4
+endif
+
+if ( -f killall.$TASK.bat ) \rm killall.$TASK.bat
+
+# generate the normalized htk features
+if ( (! -d data/hcopy) || $?FORCEHCOPY ) then
+   mkdir -p data/hcopy
+   set jwait=`./base/submits/submit_hcopy.sh $HCTIMING -HCSCP lib/flists.hcopy/${TASK}.copy.scp htefiles/HTE.hcopymlp data/hcopy ${jwait}`
+   echo "qdel $jwait" >> killall.$TASK.bat
+endif
+
+# generate the corresponding pfile
+if ((! -d data/pfile)  || $?FORCEHCOPY || $?FORCEPFILE ) then
+   mkdir -p data/pfile
+   set jwait=`base/submits/submit_code2pfilefwd.sh $TIMING ${TASK} $CTXFRAME lib/flists.test ${jwait}`
+   echo "qdel $jwait" >> killall.$TASK.bat
+endif
+
+# run the lattice alignment (generate transcriptions)
+set jwait=`./base/local/submits/submit_hdecode-mbt.net $cmdargs $TASK $jwait`
+
+echo "qdel $jwait" >> killall.$TASK.bat
+chmod u+x killall.$TASK.bat
+
+echo $jwait

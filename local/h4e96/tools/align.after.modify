@@ -1,0 +1,15 @@
+#! /bin/bash
+
+mkdir -p hmm11
+./base/bin/HHEd -H alignHMMs/work/MMF -M hmm11 base/lib/edfiles/sh.hed alignHMMs/xwrd.clustered.mlist > hmm11/sh.LOG
+python base/htools/mlftransf_state_align_dnn.py -label2index mono hmm11/sh.LOG alignHMMs/xwrd.clustered.mlist lib/mlabs/dev03.mlf lib/mlists/tiedstates.lst lib/mlabs/dev03.index.mlf
+./base/local/py/recover_align_index.py lib/mlabs/dev03.index.mlf lib/mlabs/dev03.index.recover.mlf lib/mlists/tiedstates.lst ../../../../S3/mlptrain.1000/lib/mlists/tiedstates.lst
+
+
+
+
+mkdir -p lib/mbt
+
+./base/local/mytools/python/gen_train_segmap.py lib/flists.hcopy/dev03.scp lib/mbt/dev03.segmap
+
+python base/local/mytools/global/python/MLPeasyTools.py     -qn-mlf2pfile-withspkr     lib/mlabs/dev03.index.recover.mlf     100000 4     data/pfile/dev03_lab_spkr.pfile     lib/mbt/dev03.segmap

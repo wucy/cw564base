@@ -1,0 +1,103 @@
+#!/bin/csh
+#set verbose
+
+set ALLARGS=($*)
+set cmdopts 
+set CHANGED
+if ( $#argv > 1 ) then
+while ( $?CHANGED )
+  unset CHANGED
+  if ( "$argv[1]" == "-GSCALE" )  then
+    set CHANGED
+    shift argv
+    set cmdopts = ($cmdopts -GSCALE $argv[1])
+    shift argv
+  endif
+  if ("$argv[1]" == "-TIMING") then
+    # enable more detailed timing
+    set CHANGED
+    set TIMING
+    shift argv
+  endif
+end
+endif
+
+if (( $#argv != 1 ) && ( $#argv != 2 ))  then
+   echo "Usage: $0 [-GSCALE lmscale] [-TIMING] set [jwait]"
+   echo "       $0 env test"
+   exit 1
+endif
+
+setenv TRAINSET $1
+
+if ($#argv == 2 ) then
+    set WAITID = "-hold_jid $2"
+else
+    set WAITID
+endif
+
+# Grid settings
+if ( -f lib/htesystem/HTE.system ) then
+    source lib/htesystem/HTE.system
+endif
+if ( $?CODINESETTING ) then
+  source $CODINESETTING 
+endif
+if ( $?QSUBQUEUE ) then
+   set QUEUE = $QSUBQUEUE
+else
+   set QUEUE = low
+endif
+
+if ( $?QSUBPROJECT ) then
+   set QPROJ = $QSUBPROJECT
+else
+   set QPROJ = babel
+endif
+
+set QOPT
+if ( $?UBUNTU ) then
+   set QOPT = ($QOPT -l ubuntu=1)
+endif
+if ( $?QMAXJOBS ) then
+   set QOPT = ($QOPT -tc $QMAXJOBS)
+endif
+if ( $?QGENERATION ) then
+   set QOPT = ($QOPT -l generation=$QGENERATION)
+endif
+
+set RUN_ARRAY_JOB=base/tools/run-array-job.sh
+
+# Generate LOG information directory
+if ( ! -d LOGs/$TRAINSET ) mkdir -p LOGs/$TRAINSET
+
+# Generate CMD run directory
+if ( ! -d CMDs ) mkdir -p CMDs
+
+# Cash the command lines (useful to keep track of things)
+echo "# Running decode default script" >> CMDs/${TRAINSET}.cmds
+echo "$0 $ALLARGS" >> CMDs/${TRAINSET}.cmds
+echo "------------------------------------" >> CMDs/${TRAINSET}.cmds
+
+if ( $?TIMING ) then
+   # time decode
+   set HTEST=base/dtools/pass_decode-timing
+else
+   set HTEST=base/local/dtools/pass_decode
+endif
+set SETLIST=lib/flists.test/${TRAINSET}.lst
+set NJOBS=`wc -l $SETLIST | gawk '{print $1}'`
+
+set LOGFILE=LOGs/${TRAINSET}/decode_${TRAINSET}_\$TASK_ID.LOG
+
+if ( $?BABELEVALQSUBOPT ) then
+    set qsubopts = "$BABELEVALQSUBOPT"
+else 
+    set qsubopts = "$QOPT -P $QPROJ -l qp=$QUEUE"
+endif
+
+qsub -cwd $qsubopts -o $LOGFILE -j y $WAITID -S /bin/bash -t 1-$NJOBS\
+   $RUN_ARRAY_JOB $SETLIST \
+   ${HTEST} ${cmdopts} $TRAINSET SET | awk '{pos=index($3,"."); print substr($3,1,pos-1)}'
+
+

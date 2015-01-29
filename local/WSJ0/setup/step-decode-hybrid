@@ -1,0 +1,400 @@
+#!/bin/tcsh
+
+# setup for decoding with hybrid system
+
+set ALLARGS=($*)
+set CHANGED
+set DATAEXT=plp
+set DATATYPE=plp
+if ( $#argv > 1 ) then
+while ( $?CHANGED )
+  unset CHANGED
+  if ( "$argv[1]" == "-BASETOOLSDIR" )  then
+    set CHANGED
+    shift argv
+    set BASETOOLSDIR = $argv[1]
+    shift argv
+  endif
+  if ( "$argv[1]" == "-DATEMASK" )  then
+    set CHANGED
+    shift argv
+    set DATEMASK
+  endif
+  if ( "$argv[1]" == "-LMLIBDIR" )  then
+    set CHANGED
+    shift argv
+    set LMLIBDIR = $argv[1]
+    shift argv
+  endif
+  if ( "$argv[1]" == "-DATADIR" )  then
+    set CHANGED
+    shift argv
+    set DATADIR = $argv[1]
+    shift argv
+  endif
+  if ( "$argv[1]" == "-DATAEXT" )  then
+    set CHANGED
+    shift argv
+    set DATAEXT = $argv[1]
+    shift argv
+  endif
+  if ( "$argv[1]" == "-DATATYPE" )  then
+    set CHANGED
+    shift argv
+    set DATATYPE = $argv[1]
+    shift argv
+  endif
+  if ( "$argv[1]" == "-SEG" )  then
+    set CHANGED
+    shift argv
+    set SEG = $argv[1]
+    shift argv
+  endif
+  if ( "$argv[1]" == "-IBMSEG" )  then
+    set CHANGED
+    shift argv
+    set IBMSEG
+  endif
+  if ( "$argv[1]" == "-IBMSEGFLP" )  then
+    set CHANGED
+    shift argv
+    set IBMSEGFLP
+  endif
+  if ( "$argv[1]" == "-IMPORTHFEA" )  then
+    set CHANGED
+    shift argv
+    set HFEAPATH = $argv[1]
+    shift argv
+  endif
+  if ( "$argv[1]" == "-IMPORTPFEA" )  then
+    set CHANGED
+    shift argv
+    set PFEAPATH = $argv[1]
+    shift argv
+  endif
+  if ( "$argv[1]" == "-VWIDE" )  then
+    set CHANGED
+    shift argv
+    set VWIDE
+  endif
+  if ("$argv[1]" == "-UNMATMMF") then
+    set CHANGED
+    shift argv
+    set UNMATMMF
+  endif
+  if ( "$argv[1]" == "-HTESYSTEM" )  then
+    set CHANGED
+    shift argv
+    set HTESYSTEM = $argv[1]
+    shift argv
+  endif
+  if ( "$argv[1]" == "-PPROB" )  then
+    set CHANGED
+    shift argv
+    set PPROB = $argv[1]
+    shift argv
+  endif
+end
+endif
+
+if ( $?HFEAPATH ) then
+   if ( ! $?DATADIR ) then
+      set DATADIR = $HFEAPATH
+   else if ( $HFEAPATH != $DATADIR ) then
+      echo "ERROR: data mismatch between HFEAPATH and DATADIR ... exiting"
+      exit 1
+   endif
+endif
+
+# Check Number of Args 
+if ( $#argv != 7) then
+   echo "Usage: $0  [-HTESYSTEM htefile] [-DATEMASK] [-BASETOOLSDIR base_ABS_PATH] [-IBMSEG] [-IBMSEGFLP] [-SEG abspath] [-LMLIBDIR abs-path] [-DATADIR abs-path] [-DATAEXT pma] [-DATATYPE user-tandem] [-IMPORTHFEA dir-ABS-PATH] [-IMPORTHPFEA pfile-ABS-PATH] [-VWIDE] [-PPROB pprobdir] BLE srcdir-ABS_PATH srcHMM src-MLP-ABS_PATH srcMLP tgtdir set"
+   echo " e.g.: $0  BLE.cantonese "'$PWD/S2/mpe'" hmm364 "'$PWD/C89/mlptrain'" mlp5.finetune C89/decode [test/dev]"
+   exit 1
+endif
+
+set BLE=$1
+set SRC=$2
+set HMM=$3
+set MLPSRC=$4
+set MLPDIR=$5
+set TGT=$6
+set TSET=$7
+
+if (! -f $BLE ) then
+   echo "BABEL Language Environment missing $BLE"
+   exit 1
+endif
+source $BLE
+set BASE=$CONVERTDIR
+
+if ( ! $?BASETOOLSDIR ) then
+    set BASETOOLSDIR=${BASE}/base
+endif
+
+set FTGT=$TGT
+if (! -d CMDs/$FTGT) mkdir -p CMDs/$FTGT
+set TRAINSET=step-decode
+echo "------------------------------------" >> CMDs/$FTGT/${TRAINSET}.cmds
+echo "$0 $ALLARGS" >> CMDs/${FTGT}/${TRAINSET}.cmds
+echo "------------------------------------" >> CMDs/$FTGT/${TRAINSET}.cmds
+
+if (! -d $SRC ) then
+   echo "Missing source acoustic model dir: $SRC"
+   exit 1
+endif
+if (! -d $BASE ) then
+   echo "Missing language base-directory: $SRC"
+   exit 1
+endif
+endif
+if (! -d $BASETOOLSDIR ) then
+   echo "Missing base tools directory $BASETOOLSDIR"
+   exit 1
+endif
+if ( -d $TGT ) then
+   echo "Directory $TGT exists - delete to rerun"
+   exit 1
+else 
+   mkdir -p $TGT
+endif
+
+cd $TGT
+
+# Create the base-line links for CMN and base information
+ln -s $BASETOOLSDIR base
+
+# Create the local library (link consistent directories - contexts and edfiles)
+mkdir lib
+if ( -f ${MLPSRC}/lib/cfgs/local.cfg ) then
+   mkdir lib/cfgs
+   cp ${MLPSRC}/lib/cfgs/local.cfg lib/cfgs/
+endif
+
+if ( -f ${SRC}/lib/cfgs/local.cfg ) then
+   cp $SRC/lib/cfgs/local.cfg lib/cfgs/local.hmm.cfg
+endif
+
+if (( $?HTESYSTEM ) || ( -f $SRC/lib/htesystem/HTE.system )) then
+   mkdir lib/htesystem
+   if ( $?HTESYSTEM ) then
+      cp $HTESYSTEM lib/htesystem/HTE.system
+   else 
+      cp $SRC/lib/htesystem/HTE.system lib/htesystem
+   endif
+   source lib/htesystem/HTE.system
+endif
+
+# Need the current file-list for lattic generation and associated files
+mkdir -p lib/{flists.test}
+mkdir lib/flists.hcopy
+
+# link the test list and then partition - create at the session level
+if ( $?DATADIR ) then     
+    mkdir lib/flists.orig
+    if ( $?IBMSEG ) then     
+        ln -s ${BASE}/IBMseg/lib/flists/${TSET}.scp lib/flists.orig
+    else if ( $?IBMSEGFLP) then     
+        ln -s ${BASE}/IBMseg-FLP/lib/flists/${TSET}.scp lib/flists.orig
+    else if ( $?SEG) then     
+        ln -s ${SEG}/lib/flists/${TSET}.scp lib/flists.orig
+    else 
+        echo "ERROR: you must specify a segmentation on the command line ... exiting"
+        exit 1
+        #ln -s ${BASE}/lib/flists.plp/${TSET}.scp lib/flists.orig
+    endif
+    if ( $?IBMSEGFLP) then     
+       set SEDDATASRC=`echo ${TGTDATADIR}/plp | sed 's/-LLP//' | sed 's/\//\\\//g'` 
+    else
+       set SEDDATASRC=`echo ${TGTDATADIR}/plp | sed 's/\//\\\//g'` 
+    endif
+    set SEDDATATGT=`echo ${DATADIR} | sed 's/\//\\\//g'` 
+    if ( $?DATAEXT ) then     
+        sed 's/\/\//\//g' lib/flists.orig/${TSET}.scp  | sed "s/${SEDDATASRC}/${SEDDATATGT}/g"  | sed "s/.plp/.${DATAEXT}/g"  > lib/flists.hcopy/${TSET}.scp
+    else 
+        sed 's/\/\//\//g' lib/flists.orig/${TSET}.scp  | sed "s/${SEDDATASRC}/${SEDDATATGT}/g"  > lib/flists.hcopy/${TSET}.scp
+    endif        
+else
+    if ( $?IBMSEG ) then     
+        ln -s ${BASE}/IBMseg/lib/flists/${TSET}.scp lib/flists.hcopy
+    else if ( $?IBMSEGFLP) then     
+        ln -s ${BASE}/IBMseg-FLP/lib/flists/${TSET}.scp lib/flists.hcopy
+    else if ( $?SEG) then     
+        ln -s ${SEG}/lib/flists/${TSET}.scp lib/flists.hcopy
+    else
+        echo "ERROR: you must specify a segmentation on the command line ... exiting"
+        #exit 1
+        ln -s ${BASE}/lib/flists.plp/${TSET}.scp lib/flists.hcopy
+    endif
+endif
+
+# generate hcopy scp accordingly
+if ( $?DATEMASK ) then
+    base/ntools/arrange_scp -DATEMASK lib/flists.hcopy/${TSET}.scp ${PWD}/data/hcopy lib/flists.hcopy/${TSET}.copy.scp lib/flists.test/${TSET}.hcopy.scp
+else
+    base/ntools/arrange_scp lib/flists.hcopy/${TSET}.scp ${PWD}/data/hcopy lib/flists.hcopy/${TSET}.copy.scp lib/flists.test/${TSET}.hcopy.scp
+endif
+
+# generate cmn/cvn stuffs
+./base/tools/scp2side -DATAEXT $DATAEXT lib/flists.hcopy/${TSET}.scp lib/flists.hcopy/${TSET}.side.scp
+mkdir tasks
+./base/tools/gen-cmn-cvn lib/flists.hcopy/${TSET}.side.scp $DATATYPE
+
+# exchange the dirname
+set fname=`head -1 lib/flists.test/${TSET}.hcopy.scp |  awk -F= '{print $2}'`
+set srcdir=`dirname "$fname"`
+set srcdir=`echo ${srcdir} | sed 's/\//\\\//g'`
+set dstdir=`echo ${PWD}/data/hcopy | sed 's/\//\\\//g'`
+
+if ( $?DATAEXT ) then 
+    sed 's/\/\//\//g' lib/flists.test/${TSET}.hcopy.scp  | sed "s/${srcdir}/${dstdir}/g" | sed "s/.plp/.${DATAEXT}/g" > lib/flists.test/${TSET}.scp
+else
+    sed 's/\/\//\//g' lib/flists.test/${TSET}.hcopy.scp  | sed "s/${srcdir}/${dstdir}/g"  > lib/flists.test/${TSET}.scp
+endif
+
+# split test list
+cd lib/flists.test
+if ($?DATEMASK) then
+    ../../base/tools/cutlists_mask.pl '%%%%%%-?????%%%%%%%%%%%%%%%%-*' ${TSET}.scp ${TSET}_
+else
+    ../../base/tools/cutlists_mask.pl '%%%%%%%%%%%%????????????????%%%_*' ${TSET}.scp ${TSET}_
+endif
+
+
+cd ../..
+./base/tools/mkflistset lib/flists.test ${TSET}_ lib/flists.test/${TSET}.lst
+
+# sort the scp file
+if ($?DATEMASK) then
+    python base/tools/SortBySide.py lib/flists.test/${TSET}.scp lib/flists.test/${TSET}.lst '%%%%%%-?????%%%%%%%%%%%%%%%%-*' ${TSET} lib/flists.test/${TSET}.sort.scp lib/flists.test/${TSET}.range 
+else
+    python base/tools/SortBySide.py lib/flists.test/${TSET}.scp lib/flists.test/${TSET}.lst '%%%%%%%%%%%%????????????????%%%_*' ${TSET} lib/flists.test/${TSET}.sort.scp lib/flists.test/${TSET}.range
+endif
+
+
+cp lib/flists.test/${TSET}.sort.scp lib/flists.test/${TSET}.scp
+
+
+
+# If the LMLIBDIR not set recreate the LM
+if ( $?LMLIBDIR ) then     
+    ln -s $LMLIBDIR/{wlists,wlabs,lms} lib
+    mkdir lib/{cntxts,dicts}
+    mkdir initHMMs
+    if (! $?UNMATMMF) then
+        ln -s ${SRC}/${HMM}/MMF initHMMs
+        ln -s ${SRC}/xwrd.clustered.mlist initHMMs
+        ln -s $SRC/lib/trees lib
+    else
+        ln -s ${MLPSRC}/hmm10/MMF initHMMs
+        ln -s ${MLPSRC}/xwrd.clustered.mlist initHMMs
+        ln -s ${MLPSRC}/lib/trees lib
+    endif
+    # Need to ensure that the LM contexts are all created
+    # Assume that trees are always in the ml directory
+    ln -s $LMLIBDIR/dicts/train.dct lib/dicts
+    awk -f base/lib/awks/dct2hv.awk lib/dicts/train.dct >  lib/dicts/test.hv.dct
+    awk -f base/lib/awks/dct2lv.awk lib/dicts/train.dct | sort | uniq > lib/dicts/test.lv.dct
+    ./base/tools/getdictcntxt lib/dicts/train.dct lib/cntxts/train.ctx sil
+    mkdir -p decodeHMMs/work
+    ./base/bin/HHEd -A -D -V -H initHMMs/MMF -w decodeHMMs/work/MMF base/lib/edfiles/cntxt.hed initHMMs/xwrd.clustered.mlist > decodeHMMs/work/LOG
+else 
+    mkdir lib/{wlabs,wlists,lms,dicts}
+    ln -s ${BASE}/lib/wlabs/train.mlf lib/wlabs
+    # Use the base word-list (linked with lexicon)
+    ln -s ${BASE}/lib/wlists/train.lst lib/wlists
+    cp lib/wlists/train.lst  lib/wlists/test.lv.lst 
+    echo '<s>' >> lib/wlists/test.lv.lst 
+    echo '</s>' >> lib/wlists/test.lv.lst 
+    # Create the language model
+    ./base/ltools/mklm train lib/wlabs/train.mlf lib/lms
+    # Create dictionary - this is needed for aligning and context generation
+    # link to the source train.*dct from the previous model - only need to change once!
+    ln -s ${SRC}/lib/dicts/train.dct lib/dicts/train.dct
+    awk -f base/lib/awks/dct2hv.awk lib/dicts/train.dct >  lib/dicts/test.hv.dct
+    awk -f base/lib/awks/dct2lv.awk lib/dicts/train.dct | sort | uniq > lib/dicts/test.lv.dct
+    # Create the model-set for alignment (including skip sp)
+    mkdir -p decodeHMMs/work
+    base/bin/HHEd -H ${SRC}/${HMM}/MMF -M decodeHMMs/work /dev/null ${SRC}/xwrd.clustered.mlist
+    set nsilstates = `awk -f base/lib/awks/numsilstates.awk decodeHMMs/work/MMF`
+    if ( $nsilstates != 5 ) then
+        # modify sil states of MMF to equal 3
+        mv decodeHMMs/work/MMF decodeHMMs/work/MMF.orig
+        awk -f base/lib/awks/convertsilto3.awk decodeHMMs/work/MMF.orig > decodeHMMs/work/MMF
+    endif
+    if (! $?UNMATMMF) then
+        ln -s ${SRC}/xwrd.clustered.mlist decodeHMMs
+    else
+	ln -s ${MLPSRC}/xwrd.clustered.mlist decodeHMMs
+    endif
+endif
+
+# link the other resources: tiedlist and statemlf
+mkdir -p decodeMLP/work
+ln -s ${MLPSRC}/${MLPDIR}/MLP decodeMLP/
+# tiedlist
+if (-f ${MLPSRC}/lib/mlists/tiedstates.lst) then
+    ln -s ${MLPSRC}/lib/mlists/tiedstates.lst decodeMLP/target2index.mlist
+else
+    echo sil 0 >> decodeMLP/target2index.mlist
+    cat ${MLPSRC}/lib/mlists/mono.lst >> decodeMLP/target2index.mlist
+endif
+# statemlf
+ln -s ${MLPSRC}/lib/mlabs/traincv.index.mlf decodeMLP/work/train.index.mlf
+
+# generate the hmm file
+if (! $?UNMATMMF) then
+    python base/htools/GenMMF4MLP.py decodeMLP/target2index.mlist decodeHMMs/work/MMF decodeHMMs/MMF sil2-sp2
+else
+    if ($?LMLIBDIR) then
+        mv decodeHMMs/work/MMF decodeHMMs/work/MMF.obsv
+        base/bin/HHEd -H ${SRC}/${HMM}/MMF -M decodeHMMs/work /dev/null ${SRC}/xwrd.clustered.mlist
+	mv decodeHMMs/work/MMF decodeHMMs/work/MMF.trans
+    else
+        mv decodeHMMs/work/MMF decodeHMMs/work/MMF.trans
+        base/bin/HHEd -H ${MLPSRC}/hmm10/MMF -M decodeHMMs/work /dev/null ${MLPSRC}/xwrd.clustered.mlist
+        mv decodeHMMs/work/MMF decodeHMMs/work/MMF.obsv
+    endif
+    python base/htools/GenUNMAT-MMF4MLP.py decodeMLP/target2index.mlist decodeHMMs/work/MMF.trans decodeHMMs/work/MMF.obsv decodeHMMs/MMF 
+endif
+
+# generate the log-prior file
+python base/htools/GenCMeanNorm4MLP.py decodeMLP/work/train.index.mlf decodeMLP/LogPriors
+
+# copy the HTE files files
+if (! -f ${MLPSRC}/${MLPDIR}/HTE) then
+    echo "MLP HTE file does not exist !!"
+    exit 1
+else
+    mkdir htefiles
+    cp ${MLPSRC}/${MLPDIR}/HTE htefiles/HTE
+    if (-f ${MLPSRC}/${MLPDIR}/HTE.cmdline) then
+        cat ${MLPSRC}/${MLPDIR}/HTE.cmdline >> htefiles/HTE
+    endif
+endif
+
+if ($?PFEAPATH) then
+    mkdir -p data/{hcopy,pfile}
+    ln -s $PFEAPATH data/pfile/${TSET}.pfile
+endif
+
+if ($?HFEAPATH) then
+    mkdir data
+    ln -s $HFEAPATH data/hcopy
+endif
+
+# bgtg decoding
+if ($?VWIDE) then
+    cp base/lib/cfgs/hdecode_aps10K.cfg lib/cfgs/hdecode.cfg
+    cp base/htefiles/HTE.lat_pass3-hybrid.lv-vwide htefiles/HTE.lat_decode
+else
+    cp base/lib/cfgs/hdecode_aps5K.cfg lib/cfgs/hdecode.cfg
+    cp base/htefiles/HTE.lat_pass3-hybrid.lv htefiles/HTE.lat_decode
+endif
+
+# CN align
+ln -s decodeHMMs alignHMMs
+
+cp base/htefiles/HTE.hcopymlp htefiles/HTE.hcopymlp
+
+

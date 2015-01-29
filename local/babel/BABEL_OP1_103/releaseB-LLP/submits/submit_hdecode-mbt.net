@@ -1,0 +1,149 @@
+#!/bin/csh
+#set verbose
+
+set ALLARGS=($*)
+set cmdopts 
+set CHANGED
+if ( $#argv > 1 ) then
+while ( $?CHANGED )
+  unset CHANGED
+  if ( "$argv[1]" == "-BGTG" )  then
+    set CHANGED
+    shift argv
+    set cmdopts = ($cmdopts -BGTG)
+  endif
+  if ( "$argv[1]" == "-BG" )  then
+    set CHANGED
+    shift argv
+    set cmdopts = ($cmdopts -BG)
+  endif
+  if ( "$argv[1]" == "-CTXFRAME" )  then
+    set CHANGED
+    shift argv
+    set CTXFRAME = $argv[1]
+    shift argv
+    set cmdopts = ($cmdopts -CTXFRAME $CTXFRAME)
+  endif
+  if ( "$argv[1]" == "-HGSCALE" )  then
+    set CHANGED
+    shift argv
+    set HGSCALE = $argv[1]
+    shift argv
+    set cmdopts = ($cmdopts -HGSCALE $HGSCALE)
+  endif
+  if ( "$argv[1]" == "-HPSCALE" )  then
+    set CHANGED
+    shift argv
+    set HPSCALE = $argv[1]
+    shift argv
+    set cmdopts = ($cmdopts -HPSCALE $HPSCALE)
+  endif
+  if ( "$argv[1]" == "-HPRUN" )  then
+    set CHANGED
+    shift argv
+    set HPRUN = $argv[1]
+    shift argv
+    set cmdopts = ($cmdopts -HPRUN $HPRUN)
+  endif
+  if ( "$argv[1]" == "-MORERES" )  then
+    set CHANGED
+    shift argv
+    set MORERES
+  endif
+  if ("$argv[1]" == "-TIMING") then
+    # enable more detailed timing
+    set CHANGED
+    set TIMING
+    shift argv
+  endif
+end
+while ( $?CHANGED )
+  unset CHANGED
+  if (`echo "$argv[1]" | awk '{print(substr($1,1,1))}'` == "-" ) then
+      set CHANGED
+      set cmdopts = "$cmdopts $argv[1]"
+      shift argv
+      set cmdopts = "$cmdopts $argv[1]"
+      shift argv
+  endif
+end
+endif
+
+if (( $#argv != 1 ) && ( $#argv != 2 ))  then
+   echo "Usage: $0 [-TIMING] [-BGTG or BG] set [jwait]"
+   echo "       $0 test"
+   exit 1
+endif
+
+setenv TRAINSET $1
+
+if ($#argv == 2 ) then
+    set WAITID = "-hold_jid $2"
+else
+    set WAITID
+endif
+
+# Grid settings
+if ( -f lib/htesystem/HTE.system ) then
+    source lib/htesystem/HTE.system
+endif
+if ( $?CODINESETTING ) then
+  source $CODINESETTING 
+endif
+if ( $?QSUBQUEUE ) then
+   set QUEUE = $QSUBQUEUE
+else
+   set QUEUE = low
+endif
+
+if ( $?QSUBPROJECT ) then
+   set QPROJ = $QSUBPROJECT
+else
+   set QPROJ = babel
+endif
+
+set QOPT
+if ( $?UBUNTU ) then
+   set QOPT = ($QOPT -l ubuntu=1)
+endif
+if ( $?QMAXJOBS ) then
+   set QOPT = ($QOPT -tc $QMAXJOBS)
+endif
+set QOPT = ( $QOPT -l generation=80 )
+
+set RUN_ARRAY_JOB=base/tools/run-array-job.sh
+
+# Generate LOG information directory
+if ( ! -d LOGs/$TRAINSET ) mkdir -p LOGs/$TRAINSET
+
+# Generate CMD run directory
+if ( ! -d CMDs ) mkdir -p CMDs
+
+# Cash the command lines (useful to keep track of things)
+echo "# Running decode-hybrid default script" >> CMDs/${TRAINSET}.cmds
+echo "$0 $ALLARGS" >> CMDs/${TRAINSET}.cmds
+echo "------------------------------------" >> CMDs/${TRAINSET}.cmds
+
+if ( $?TIMING ) then
+    set HTEST=base/dtools/pass_decode-hybrid-timing
+else
+    set HTEST=base/local/dtools/pass_decode-mbt
+endif
+set SETLIST=lib/flists.test/${TRAINSET}.lst
+set NJOBS=`wc -l $SETLIST | gawk '{print $1}'`
+
+set LOGFILE=LOGs/${TRAINSET}/decode_${TRAINSET}_\$TASK_ID.LOG
+
+if ( $?BABELEVALQSUBOPT ) then
+    set qsubopts = "$BABELEVALQSUBOPT -l generation=80"
+else 
+    set qsubopts = "$QOPT -P $QPROJ -l qp=$QUEUE"
+endif
+
+set retstr=`qsub -cwd $qsubopts -o $LOGFILE -j y $WAITID -S /bin/bash -t 1-$NJOBS \
+            $RUN_ARRAY_JOB $SETLIST ${HTEST} ${cmdopts} $TRAINSET SET`
+
+set jnum=`echo $retstr | awk '{print $3}' | cut -f 1 -d .`
+
+echo $jnum
+

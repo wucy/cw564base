@@ -1,0 +1,64 @@
+#!/bin/csh -f
+
+set ALLARGS=($*)
+set CHANGED
+if ( $#argv > 1 ) then
+while ( $?CHANGED )
+  unset CHANGED
+  if ( "$argv[1]" == "-GSCALE" )  then
+    set CHANGED
+    shift argv
+    set GSCALE = $argv[1]
+    shift argv
+  endif
+end
+endif
+
+# Check Number of Args
+if ( $#argv != 2 ) then
+   echo "Usage: $0 [-GSCALE lmscale] type show "
+   exit 1
+endif
+
+set TYPE=$1
+set SHOW=$2
+
+if ( -f lib/htesystem/HTE.system ) then
+    source lib/htesystem/HTE.system
+endif
+
+set HTE=htefiles/HTE.dec_si
+set SET=null
+source $HTE
+
+if ( $?HVGSCALE) then
+    set LMSCALE=$HVGSCALE
+else if ( $?MLP ) then     
+   set LMSCALE=21.0
+else
+   set LMSCALE=12.0
+endif
+
+# overwrite the default LMSCALE values 
+if ( $?GSCALE ) then
+    set LMSCALE = $GSCALE
+endif
+set CNSCALE=`echo $LMSCALE | awk '{printf("%f",1/$1)}'`
+
+set toolsdir = ./base/dtools
+
+if (! -d $toolsdir) then
+   echo "need to set-up the tools directory $toolsdir"
+   exit 1
+endif
+
+$toolsdir/htest -HVGSCALE $LMSCALE $HTE $TYPE $SHOW decode
+$toolsdir/hlrescore -HLIMPROB 0.0 -HLGSCALE ${LMSCALE} base/htefiles/HTE.hlrescore $TYPE $SHOW decode decode/rescore/tg_${LMSCALE}_0.0
+$toolsdir/cntest -HLASCALE $CNSCALE base/htefiles/HTE.cn $TYPE $SHOW decode/rescore/tg_${LMSCALE}_0.0 decode/rescore/tg_${LMSCALE}_0.0_cn
+$toolsdir/htest base/htefiles/HTE.test.cnalign $TYPE $SHOW decode/rescore/tg_${LMSCALE}_0.0_cn
+
+exit 0
+
+#---------------------------------------------------------------#
+#                End of Script: herest                          #
+#---------------------------------------------------------------#

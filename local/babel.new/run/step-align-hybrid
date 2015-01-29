@@ -1,0 +1,81 @@
+#!/bin/tcsh
+
+# run alignment with hybrid system
+set cmdopts
+set ALLARGS=($*)
+set CHANGED
+set DATATYPE=user-tandem
+if ( $#argv > 1 ) then
+while ( $?CHANGED )
+  unset CHANGED
+  if ("$argv[1]" == '-CTXFRAME') then
+      set CHANGED
+      set cmdopts = "$cmdopts $argv[1]"
+      shift argv
+      set CTXFRAME = $argv[1]
+      set cmdopts = "$cmdopts $argv[1]"
+      shift argv
+  endif
+  if ("$argv[1]" == '-DATATYPE') then
+      set CHANGED
+      shift argv
+      set DATATYPE = $argv[1]
+      shift argv
+  endif
+  # commented out for now as could potentially cause errors
+  #if (`echo "$argv[1]" | awk '{print(substr($1,1,1))}'` == "-" ) then
+  #    set CHANGED
+  #    set cmdopts = "$cmdopts $argv[1]"
+  #    shift argv
+  #    set cmdopts = "$cmdopts $argv[1]"
+  #    shift argv
+  #endif
+end
+endif
+
+if ( $#argv != 1 && $#argv != 2  ) then
+    echo "Usage: $0 [-CTXFRAME N] [-DATATYPE type] tset [jwait]\n"
+    echo "  e.g. $0 traincv"
+    echo "-CTXFRAME FrameNum: specify the context frame numbers (default: FrameNum = 4). When FrameNum = 4, (4 * 2) + 1 = 9 frames are used as the input to the network."
+    exit 100
+endif
+
+if ( $#argv == 2 ) then
+    set jwait=$2
+else
+    set jwait
+endif
+
+if (! -d CMDs ) mkdir CMDs
+set TRAINSET=step-align-hybrid
+echo "------------------------------------" >> CMDs/${TRAINSET}.cmds
+echo "$0 $ALLARGS" >> CMDs/${TRAINSET}.cmds
+echo "------------------------------------" >> CMDs/${TRAINSET}.cmds
+
+set TSET = $1
+
+if (! $?CTXFRAME) then
+    set CTXFRAME = 4
+endif
+
+# generate the normalized htk features
+if (! -d data/hcopy) then
+    mkdir -p data/hcopy
+    set jwait=`./base/submits/submit_hcopy.sh -HCSCP lib/flists.hcopy/${TSET}.copy.scp base/htefiles/HTE.hcopymlp data/hcopy ${jwait}`
+endif
+
+# generate the corresponding pfile
+if (! -d data/pfile) then
+    mkdir -p data/pfile
+    set jwait=`./base/submits/submit_code2pfilefwd.sh ${TSET} $CTXFRAME lib/flists.hcopy $jwait`
+endif
+
+# align using hybrid decoding
+set jwait=`./base/local/submits/submit_align-hybrid.sh base/htefiles/HTE.align.flexible-hybrid ${TSET} htefiles/HTE ${jwait}`
+
+# merge alignments
+set jwait=`./base/htools/merge_align.codine -MLP ${TSET} ${TSET} ${jwait}` 
+
+echo $jwait
+
+

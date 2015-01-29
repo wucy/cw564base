@@ -1,0 +1,67 @@
+#!/bin/csh -f
+# set verbose
+
+set ALLARGS=($*)
+set CHANGED
+if ( $#argv > 1 ) then
+while ( $?CHANGED )
+  unset CHANGED
+  if ( "$argv[1]" == "-TASKDIR" )  then
+    set CHANGED
+    shift argv
+    set TASKDIR = $argv[1]
+    shift argv
+  endif
+end
+endif
+
+# Check Number of Args
+if ( $#argv != 2 ) then
+   echo "Usage: $0 [-TASKDIR] flist type"
+   echo " e.g.: $0 lib/flists/dev.scp user"
+   echo "Executable to install a the dev/test sets for alanguage"   
+   exit 1
+endif
+
+set SCP=$1
+set TYPE=$2
+
+if (! -f base/lib/cfgs/cmn-${TYPE}.cfg) then
+    echo "Unknown type $TYPE : missing base/lib/cfgs/cmn-${TYPE}.cfg"
+    exit 1
+endif
+
+if ( ! $?TASKDIR ) then
+    set TASKDIR = tasks
+endif
+
+if ( -f lib/htesystem/HTE.system ) then
+   source lib/htesystem/HTE.system
+endif
+
+if ( $TYPE == "user-tandem" || $TYPE == "user-tandem65" || $TYPE == "user-tandem78" ) then
+    set NOTRIPLE
+endif
+
+mkdir -p CMDs
+# Stand alone command - cash the call
+echo "# CMN/CVN generation directories" >> CMDs/cmn-cvn-${TYPE}.cmds
+echo "$0 $ALLARGS" >> CMDs/cmn-cvn-${TYPE}.cmds
+echo "------------------------------------" >> CMDs/cmn-cvn-${TYPE}.cmds
+
+#if ( $?DATEMASK ) then
+#    ./base/htools/hcompv -TESTDATALIST $SCP -HCCONFIG base/lib/cfgs/cmn-${TYPE}.cfg base/htefiles/HTE.cmn-datemask NULL $TASKDIR/cmn-${TYPE}
+#    ./base/htools/hcompv -TESTDATALIST $SCP -HCCONFIG base/lib/cfgs/cvn-${TYPE}-datemask.cfg base/htefiles/HTE.cvn-datemask NULL $TASKDIR/cvn-${TYPE}
+#    if ( ! $?NOTRIPLE ) then
+#        ./base/htools/hcompv -TESTDATALIST $SCP -HCCONFIG base/lib/cfgs/cvn-${TYPE}_T-datemask.cfg base/htefiles/HTE.cvn-datemask NULL $TASKDIR/cvn-${TYPE}_T
+#    endif
+#else 
+#    ./base/htools/hcompv -TESTDATALIST $SCP -HCCONFIG base/lib/cfgs/cmn-${TYPE}.cfg base/htefiles/HTE.cmn NULL $TASKDIR/cmn-${TYPE}
+#    ./base/htools/hcompv -TESTDATALIST $SCP -HCCONFIG base/lib/cfgs/cvn-${TYPE}.cfg base/htefiles/HTE.cvn NULL $TASKDIR/cvn-${TYPE}
+#    if ( ! $?NOTRIPLE ) then
+#        ./base/htools/hcompv -TESTDATALIST $SCP -HCCONFIG base/lib/cfgs/cvn-${TYPE}_T.cfg base/htefiles/HTE.cvn NULL $TASKDIR/cvn-${TYPE}_T
+#    endif
+#endif
+
+./base/htools/hcompv -TESTDATALIST $SCP -HCCONFIG base/lib/cfgs/cmn-${TYPE}.cfg htefiles/HTE.cmn NULL $TASKDIR/cmn-${TYPE}
+./base/htools/hcompv -TESTDATALIST $SCP -HCCONFIG base/lib/cfgs/cvn-${TYPE}.cfg base/htefiles/HTE.cvn NULL $TASKDIR/cvn-${TYPE}

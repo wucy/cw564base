@@ -1,0 +1,57 @@
+#!/bin/tcsh
+
+set ALLARGS=($*)
+set CHANGED
+set DATAEXT=plp
+if ( $#argv > 1 ) then
+while ( $?CHANGED )
+  unset CHANGED
+  if ( "$argv[1]" == "-DATEMASK" )  then
+    set CHANGED
+    shift argv
+    set DATEMASK
+  endif
+endif
+
+# Check Number of Args
+if ( $#argv != 4 ) then
+   echo "Usage: $0 IN_scp DATADIR HCOPY_scp OUT_scp"
+   exit 1
+endif
+
+set ISCP=$1
+set DATADIR=$2
+set HSCP=$3
+set SCP=$4
+
+if ( -f lib/htesystem/HTE.system ) then
+   source lib/htesystem/HTE.system
+endif
+
+# make hcopy script
+set SORTISCP = ${HSCP}.sort_input
+sort -u $ISCP > $SORTISCP
+
+if ( $?DATEMASK ) then
+   # meeting/broadcast news data
+   # AFTYOU-X0001-20080509-XX1830-CW_BBC1WEX_0004832_0005272.plp=/home/blueb/nst/data/plp/20080509+1830+1WE+AFTE+YOU.plp
+    ./base/tools/mask.pl '%%%%%%-?????%%%%%%%%%%%%%%%%-*' $SORTISCP | paste - $SORTISCP > ${HSCP}.mask
+
+else
+   # conversational telephone speech data
+   # BPL206-13030-20121129-225418-in_CIXMXXX_0000382_0000437.plp=/home/bluec/babel/BABEL_OP1_206/releaseB-LLP/data/plp/BPL206-13030-20121129-225418-CIXMXXX.plp[382,437]
+   ./base/tools/mask.pl '%%%%%%%%%%%%%%%%%%%%%%%%%%%%-%%*' $SORTISCP | paste - $SORTISCP > ${HSCP}.mask
+endif
+
+awk '{name=$1; if (nameset[name] != 1) {nameset[name]=1; n=index($2,"["); print substr($2,1,(n-1));}}' ${HSCP}.mask > ${HSCP}.base
+
+sed 's/=/\//g' ${HSCP}.base | awk -F/ '{printf "%s/%s\n", d,$NF;}' d=$DATADIR - | sed 's/\/\//\//g' > ${HSCP}.base2
+
+paste ${HSCP}.base ${HSCP}.base2 | awk '{print $1,$2;}' > $HSCP
+
+# make main traincv.scp
+sed 's/=/\//g' $SORTISCP | awk -F/ '{printf "%s=%s/%s\n", $1,d,$NF;}' d=$DATADIR - | sed 's/\/\//\//g' > $SCP
+
+
+
+

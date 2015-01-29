@@ -1,0 +1,36 @@
+#!/bin/csh
+
+#if ( $#argv != 6 ) then
+#   echo "Usage: $0 mode ctxframe silmod inmlf outmlf"
+#   exit 1
+#endif
+
+set mode = $1
+set ctxframe = $2
+set silmod = $3
+set inmlf = $4
+set outmlf = $5
+set segmappy = $6
+set outpfile = $7
+
+
+#echo $silmod
+
+#if ($mode == 'cdstate') then
+    #if ( -d hmm11 ) then
+    #    echo "WARNING: deleting hmm11 directory"
+    #    rm -r hmm11
+    #endif
+    #mkdir -p hmm11
+    #./base/bin/HHEd -H hmm10/MMF -M hmm11 base/lib/edfiles/sh.hed xwrd.clustered.mlist > hmm11/sh.LOG
+    #\rm hmm11/MMF
+    #python base/htools/mlftransf_state_align_dnn.py -label2index $silmod hmm11/sh.LOG xwrd.clustered.mlist $inmlf lib/mlists/tiedstates.lst $outmlf
+    #echo python base/htools/mlftransf_state_align_dnn.py -label2index $silmod hmm11/sh.LOG xwrd.clustered.mlist $inmlf lib/mlists/tiedstates.lst $outmlf
+
+
+
+
+python ~/base/global/python/MLPeasyTools.py -qn-mlf2pfile-withspkr $inmlf 100000 4 $outpfile $segmappy
+echo "python ~/base/global/python/MLPeasyTools.py -qn-mlf2pfile-withspkr $inmlf 100000 4 $outpfile $segmappy"
+
+
